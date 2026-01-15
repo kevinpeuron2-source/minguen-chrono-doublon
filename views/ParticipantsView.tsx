@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { collection, onSnapshot, addDoc, deleteDoc, doc, updateDoc, writeBatch, getDocs } from 'firebase/firestore';
+import React, { useState, useEffect, useCallback } from 'react';
+import { collection, onSnapshot, addDoc, deleteDoc, doc, updateDoc, writeBatch } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Participant, Race, ParticipantStatus, RaceType, RaceStatus } from '../types';
 import { Users, Search, Filter, Trash2, Edit2, UserPlus, X, CheckCircle2, AlertCircle, FileUp, ArrowRight, Settings2, Sparkles } from 'lucide-react';
@@ -12,6 +12,7 @@ const ParticipantsView: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedRaceId, setSelectedRaceId] = useState('all');
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [showMappingModal, setShowMappingModal] = useState(false);
   const { setDbError } = useDatabase();
 
@@ -22,7 +23,7 @@ const ParticipantsView: React.FC = () => {
   const [importLoading, setImportLoading] = useState(false);
 
   const [newPart, setNewPart] = useState<Partial<Participant>>({
-    bib: '', firstName: '', lastName: '', gender: 'M', category: 'SENIOR', club: '', status: ParticipantStatus.REGISTERED
+    bib: '', firstName: '', lastName: '', gender: 'M', category: 'SENIOR', club: '', status: ParticipantStatus.REGISTERED, raceId: ''
   });
 
   const handleError = useCallback((err: any) => {
@@ -54,7 +55,6 @@ const ParticipantsView: React.FC = () => {
         setCsvHeaders(headers);
         setCsvData(data);
         
-        // Tentative de mapping automatique
         const autoMap: Record<string, string> = {};
         const fields = ['bib', 'lastName', 'firstName', 'gender', 'category', 'club', 'race'];
         const synonyms: Record<string, string[]> = {
@@ -80,7 +80,7 @@ const ParticipantsView: React.FC = () => {
       }
     };
     reader.readAsText(file);
-    e.target.value = ''; // Reset input
+    e.target.value = ''; 
   };
 
   const executeImport = async () => {
@@ -99,7 +99,6 @@ const ParticipantsView: React.FC = () => {
           if (existingId) {
             raceId = existingId;
           } else {
-            // Création automatique de la course
             const newRaceRef = await addDoc(collection(db, 'races'), {
               name: String(raceValue),
               distance: parseFloat(String(raceValue).match(/\d+/)?.[0] || '10'),
@@ -137,14 +136,54 @@ const ParticipantsView: React.FC = () => {
     }
   };
 
-  const handleAdd = async () => {
+  const handleSave = async () => {
     if (!newPart.bib || !newPart.lastName || !newPart.raceId) {
       alert("Dossard, Nom et Course obligatoires");
       return;
     }
-    await addDoc(collection(db, 'participants'), { ...newPart, status: ParticipantStatus.REGISTERED });
-    setShowAddModal(false);
-    setNewPart({ bib: '', firstName: '', lastName: '', gender: 'M', category: 'SENIOR', club: '', status: ParticipantStatus.REGISTERED });
+
+    try {
+      if (editingId) {
+        const partRef = doc(db, 'participants', editingId);
+        await updateDoc(partRef, {
+          bib: newPart.bib,
+          firstName: newPart.firstName,
+          lastName: newPart.lastName?.toUpperCase(),
+          gender: newPart.gender,
+          category: newPart.category?.toUpperCase(),
+          club: newPart.club,
+          raceId: newPart.raceId,
+          status: newPart.status
+        });
+        setEditingId(null);
+      } else {
+        await addDoc(collection(db, 'participants'), { 
+          ...newPart, 
+          lastName: newPart.lastName?.toUpperCase(),
+          category: newPart.category?.toUpperCase(),
+          status: ParticipantStatus.REGISTERED 
+        });
+      }
+      setShowAddModal(false);
+      setNewPart({ bib: '', firstName: '', lastName: '', gender: 'M', category: 'SENIOR', club: '', status: ParticipantStatus.REGISTERED, raceId: '' });
+    } catch (err: any) {
+      alert("Erreur lors de l'enregistrement : " + err.message);
+    }
+  };
+
+  const openEditModal = (p: Participant) => {
+    setNewPart({
+      bib: p.bib,
+      firstName: p.firstName,
+      lastName: p.lastName,
+      gender: p.gender,
+      category: p.category,
+      club: p.club || '',
+      raceId: p.raceId,
+      status: p.status
+    });
+    setEditingId(p.id);
+    setShowAddModal(true);
   };
 
   const deleteParticipant = async (id: string) => {
@@ -176,7 +215,11 @@ const ParticipantsView: React.FC = () => {
             <input type="file" accept=".csv" className="hidden" onChange={handleFileUpload} />
           </label>
           <button 
-            onClick={() => setShowAddModal(true)}
+            onClick={() => {
+              setEditingId(null);
+              setNewPart({ bib: '', firstName: '', lastName: '', gender: 'M', category: 'SENIOR', club: '', status: ParticipantStatus.REGISTERED, raceId: races.length > 0 ? races[0].id : '' });
+              setShowAddModal(true);
+            }}
             className="flex-1 md:flex-initial bg-blue-600 text-white px-8 py-4 rounded-[2rem] font-black flex items-center justify-center gap-3 shadow-xl shadow-blue-100 hover:scale-105 transition-transform"
           >
             <UserPlus size={24} /> Ajouter
@@ -184,7 +227,6 @@ const ParticipantsView: React.FC = () => {
         </div>
       </header>
 
-      {/* Barre de recherche et filtre */}
       <div className="bg-white p-8 rounded-[3rem] border border-slate-100 shadow-sm flex flex-col md:flex-row gap-6 items-center">
         <div className="relative flex-1 w-full">
           <Search className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-300" size={20} />
@@ -209,7 +251,6 @@ const ParticipantsView: React.FC = () => {
         </div>
       </div>
 
-      {/* Tableau des inscrits */}
       <div className="bg-white rounded-[3rem] border border-slate-100 shadow-xl overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left">
@@ -265,7 +306,10 @@ const ParticipantsView: React.FC = () => {
                     </td>
                     <td className="py-6 px-8 text-right">
                       <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button className="p-3 bg-slate-100 text-slate-400 hover:text-blue-600 rounded-xl transition-colors">
+                        <button 
+                          onClick={() => openEditModal(p)}
+                          className="p-3 bg-slate-100 text-slate-400 hover:text-blue-600 rounded-xl transition-colors"
+                        >
                           <Edit2 size={18} />
                         </button>
                         <button 
@@ -284,7 +328,6 @@ const ParticipantsView: React.FC = () => {
         </div>
       </div>
 
-      {/* Modal de Mapping CSV */}
       {showMappingModal && (
         <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-xl z-[150] flex items-center justify-center p-4">
           <div className="bg-white rounded-[3.5rem] p-12 w-full max-w-4xl shadow-2xl animate-in zoom-in-95 duration-200">
@@ -346,21 +389,20 @@ const ParticipantsView: React.FC = () => {
         </div>
       )}
 
-      {/* Modal Ajout Manuel */}
       {showAddModal && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
           <div className="bg-white rounded-[3rem] p-10 w-full max-w-2xl shadow-2xl animate-in zoom-in-95 duration-200">
             <div className="flex justify-between items-center mb-8">
-              <h2 className="text-3xl font-black text-slate-900">Nouveau Participant</h2>
+              <h2 className="text-3xl font-black text-slate-900">{editingId ? 'Modifier le Concurrent' : 'Nouveau Concurrent'}</h2>
               <button onClick={() => setShowAddModal(false)} className="p-2 hover:bg-slate-100 rounded-full text-slate-400"><X size={24}/></button>
             </div>
-            {/* Formulaire classique déjà présent */}
+            
             <div className="grid grid-cols-2 gap-6">
               <div className="space-y-2 col-span-2 md:col-span-1">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Dossard</label>
                 <input 
                   type="text" 
-                  className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-6 py-4 font-black text-2xl text-blue-600 outline-none"
+                  className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-6 py-4 font-black text-2xl text-blue-600 outline-none focus:border-blue-500"
                   value={newPart.bib}
                   onChange={e => setNewPart({...newPart, bib: e.target.value})}
                   placeholder="000"
@@ -369,7 +411,7 @@ const ParticipantsView: React.FC = () => {
               <div className="space-y-2 col-span-2 md:col-span-1">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Épreuve</label>
                 <select 
-                  className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-6 py-4 font-black text-lg"
+                  className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-6 py-4 font-black text-lg outline-none focus:border-blue-500"
                   value={newPart.raceId}
                   onChange={e => setNewPart({...newPart, raceId: e.target.value})}
                 >
@@ -377,11 +419,70 @@ const ParticipantsView: React.FC = () => {
                   {races.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
                 </select>
               </div>
-              {/* Reste des champs... */}
+
+              <div className="space-y-2 col-span-2 md:col-span-1">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Nom</label>
+                <input 
+                  type="text" 
+                  className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-6 py-4 font-black outline-none focus:border-blue-500 uppercase"
+                  value={newPart.lastName}
+                  onChange={e => setNewPart({...newPart, lastName: e.target.value})}
+                  placeholder="NOM"
+                />
+              </div>
+              <div className="space-y-2 col-span-2 md:col-span-1">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Prénom</label>
+                <input 
+                  type="text" 
+                  className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-6 py-4 font-black outline-none focus:border-blue-500"
+                  value={newPart.firstName}
+                  onChange={e => setNewPart({...newPart, firstName: e.target.value})}
+                  placeholder="Prénom"
+                />
+              </div>
+
+              <div className="space-y-2 col-span-2 md:col-span-1">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Sexe</label>
+                <select 
+                  className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-6 py-4 font-black outline-none focus:border-blue-500"
+                  value={newPart.gender}
+                  onChange={e => setNewPart({...newPart, gender: e.target.value})}
+                >
+                  <option value="M">Masculin (M)</option>
+                  <option value="F">Féminin (F)</option>
+                </select>
+              </div>
+              <div className="space-y-2 col-span-2 md:col-span-1">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Catégorie</label>
+                <input 
+                  type="text" 
+                  className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-6 py-4 font-black outline-none focus:border-blue-500 uppercase"
+                  value={newPart.category}
+                  onChange={e => setNewPart({...newPart, category: e.target.value})}
+                  placeholder="SENIOR, V1, ESP..."
+                />
+              </div>
+
+              <div className="space-y-2 col-span-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Club / Équipe</label>
+                <input 
+                  type="text" 
+                  className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-6 py-4 font-black outline-none focus:border-blue-500"
+                  value={newPart.club}
+                  onChange={e => setNewPart({...newPart, club: e.target.value})}
+                  placeholder="Nom du club ou individuel"
+                />
+              </div>
             </div>
+
             <div className="flex gap-4 pt-10">
-              <button onClick={() => setShowAddModal(false)} className="flex-1 py-5 font-black text-slate-400">Annuler</button>
-              <button onClick={handleAdd} className="flex-1 bg-blue-600 text-white py-5 rounded-2xl font-black shadow-lg">Enregistrer</button>
+              <button onClick={() => setShowAddModal(false)} className="flex-1 py-5 font-black text-slate-400 hover:bg-slate-50 rounded-2xl">Annuler</button>
+              <button 
+                onClick={handleSave} 
+                className="flex-1 bg-blue-600 text-white py-5 rounded-2xl font-black shadow-lg shadow-blue-100 hover:bg-blue-700 transition-all"
+              >
+                {editingId ? 'Mettre à jour' : 'Enregistrer'}
+              </button>
             </div>
           </div>
         </div>

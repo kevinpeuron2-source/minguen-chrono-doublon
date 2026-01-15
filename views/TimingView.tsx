@@ -1,11 +1,9 @@
-
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { collection, onSnapshot, addDoc, updateDoc, doc, query, where } from 'firebase/firestore';
+import { collection, onSnapshot, addDoc, updateDoc, doc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Race, Participant, RaceStatus, ParticipantStatus, Passage } from '../types';
 import { formatDuration } from '../utils/time';
-// Added AlertTriangle to imports to fix line 159 error
-import { Focus, Timer, CheckCircle2, ListFilter, AlertCircle, X, MapPin, AlertTriangle } from 'lucide-react';
+import { Focus, Timer, CheckCircle2, ListFilter, AlertCircle, X, MapPin, AlertTriangle, Zap, Terminal } from 'lucide-react';
 import { useDatabase } from '../context/DatabaseContext';
 
 const TimingView: React.FC = () => {
@@ -93,7 +91,6 @@ const TimingView: React.FC = () => {
       return;
     }
 
-    // Vérification des points manqués avant validation
     const hasAllPoints = checkMandatoryPoints(participant.id, race.id);
 
     let timestamp = Date.now();
@@ -138,103 +135,115 @@ const TimingView: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6 pb-20">
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+    <div className="space-y-8 pb-20 animate-in fade-in duration-500">
+      <div className="flex overflow-x-auto gap-4 pb-4 scrollbar-hide">
         {races.filter(r => r.status === RaceStatus.RUNNING).map(race => (
-          <div key={race.id} className="bg-slate-900 p-4 rounded-2xl border-l-4 border-blue-500 shadow-xl">
-            <p className="text-[10px] font-black text-slate-500 uppercase truncate">{race.name}</p>
-            <p className="text-xl font-black text-white mono">
+          <div key={race.id} className="flex-none bg-slate-950 p-6 rounded-[2rem] border-t-4 border-blue-500 shadow-2xl min-w-[240px]">
+            <p className="text-[10px] font-black text-slate-500 uppercase truncate tracking-widest">{race.name}</p>
+            <p className="text-3xl font-black text-white mono mt-1">
               {formatDuration(Date.now() - (race.startTime || 0)).split('.')[0]}
             </p>
           </div>
         ))}
       </div>
 
-      <div className="bg-white rounded-[3rem] p-10 border-4 border-blue-600 shadow-2xl relative overflow-hidden">
-        {/* Alerte Visuelle dernier passage */}
+      <div className="bg-white rounded-[4rem] p-12 border border-slate-100 shadow-[0_50px_100px_rgba(0,0,0,0.05)] relative overflow-hidden group">
+        <div className="absolute top-0 right-0 w-96 h-96 bg-blue-500/5 rounded-full -mr-48 -mt-48 blur-3xl"></div>
+        
         {lastValidation && (
-          <div className={`absolute inset-x-0 top-0 p-4 text-center font-black animate-in slide-in-from-top-full duration-300 ${
+          <div className={`absolute inset-x-0 top-0 p-6 text-center font-black animate-in slide-in-from-top-full duration-500 z-30 shadow-2xl ${
             lastValidation.status === 'ok' ? 'bg-emerald-500 text-white' : 'bg-red-500 text-white animate-pulse'
           }`}>
-            <div className="flex items-center justify-center gap-3">
-              {lastValidation.status === 'ok' ? <CheckCircle2 size={24}/> : <AlertTriangle size={24}/>}
-              DOSSARD {lastValidation.bib} ({lastValidation.name}) : {lastValidation.status === 'ok' ? 'PARCOURS COMPLET' : 'CHECKPOINTS MANQUANTS !'}
+            <div className="flex items-center justify-center gap-4 text-xl">
+              {lastValidation.status === 'ok' ? <CheckCircle2 size={32}/> : <AlertTriangle size={32}/>}
+              DOSSARD {lastValidation.bib} : {lastValidation.status === 'ok' ? 'PARCOURS VALIDE' : 'CHECKPOINTS MANQUANTS !'}
             </div>
           </div>
         )}
 
-        <div className="flex justify-between items-center mb-10 pt-8">
+        <div className="flex justify-between items-center mb-12">
           <div>
-            <h2 className="text-3xl font-black text-blue-600">LIGNE D'ARRIVÉE</h2>
-            <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">Saisie dossard & validation temps réel</p>
+            <h2 className="text-4xl font-black text-slate-900 flex items-center gap-4">
+              <Terminal className="text-blue-600" size={36} /> TERMINAL ARRIVÉE
+            </h2>
+            <p className="text-slate-400 text-xs font-bold uppercase tracking-[0.3em] mt-2">Saisie temps réel haute précision</p>
           </div>
           <button 
             onClick={() => setIsFocusLocked(!isFocusLocked)}
-            className={`px-6 py-3 rounded-2xl font-black flex items-center gap-2 transition-all ${
+            className={`px-8 py-4 rounded-2xl font-black flex items-center gap-3 transition-all ${
               isFocusLocked ? 'bg-blue-600 text-white shadow-xl shadow-blue-200' : 'bg-slate-100 text-slate-400'
             }`}
           >
-            <Focus size={20} /> {isFocusLocked ? 'CLAVIER CAPTIF' : 'CLAVIER LIBRE'}
+            <Focus size={24} /> {isFocusLocked ? 'CAPTURE CLAVIER' : 'MODE LIBRE'}
           </button>
         </div>
 
-        <input
-          ref={inputRef}
-          type="text"
-          className="w-full text-center text-[12rem] font-black mono py-12 rounded-[2.5rem] bg-slate-50 border-4 border-slate-100 focus:border-blue-500 outline-none transition-all placeholder:text-slate-100"
-          placeholder="000"
-          value={bibInput}
-          onChange={(e) => setBibInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-        />
+        <div className="relative">
+          <div className="absolute inset-0 bg-blue-600/5 blur-3xl rounded-full opacity-0 group-hover:opacity-100 transition-opacity"></div>
+          <input
+            ref={inputRef}
+            type="text"
+            className="w-full text-center text-[16rem] font-black mono py-16 rounded-[4rem] bg-slate-50 border-4 border-slate-50 focus:border-blue-500/30 outline-none transition-all placeholder:text-slate-100 shadow-inner relative z-10"
+            placeholder="000"
+            value={bibInput}
+            onChange={(e) => setBibInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+          />
+        </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
-          <button onClick={() => { const now = Date.now(); setWaitingPile(p => [...p, {timestamp: now, id: crypto.randomUUID()}])}} className="bg-amber-100 text-amber-700 py-8 rounded-[2rem] font-black text-2xl flex items-center justify-center gap-4 border-b-8 border-amber-200 active:border-b-0 active:translate-y-2 transition-all">
-            <Timer size={32} /> TOP CHRONO (TAB)
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-12">
+          <button onClick={() => { const now = Date.now(); setWaitingPile(p => [...p, {timestamp: now, id: crypto.randomUUID()}])}} className="bg-amber-100/50 text-amber-700 py-10 rounded-[2.5rem] font-black text-3xl flex items-center justify-center gap-5 border-2 border-amber-200 shadow-lg shadow-amber-200/20 active:scale-95 transition-all">
+            <Timer size={40} /> TOP CHRONO <span className="text-xs px-3 py-1 bg-amber-200 rounded-full">TAB</span>
           </button>
-          <button onClick={() => processPassage(bibInput)} className="bg-blue-600 text-white py-8 rounded-[2rem] font-black text-2xl flex items-center justify-center gap-4 border-b-8 border-blue-800 active:border-b-0 active:translate-y-2 transition-all shadow-xl shadow-blue-100">
-            <CheckCircle2 size={32} /> VALIDER (ENTRÉE)
+          <button onClick={() => processPassage(bibInput)} className="bg-blue-600 text-white py-10 rounded-[2.5rem] font-black text-3xl flex items-center justify-center gap-5 shadow-2xl shadow-blue-200 active:scale-95 transition-all">
+            <CheckCircle2 size={40} /> VALIDER <span className="text-xs px-3 py-1 bg-white/20 rounded-full">ENTRÉE</span>
           </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 bg-amber-50 rounded-[2.5rem] p-8 border-2 border-amber-100 shadow-sm">
-          <h3 className="text-sm font-black text-amber-600 uppercase mb-6 flex items-center gap-3">
-            <ListFilter size={20} /> File d'attente des temps ({waitingPile.length})
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="lg:col-span-2 bg-slate-950 rounded-[3rem] p-10 border border-white/5 shadow-2xl overflow-hidden relative">
+          <div className="absolute top-0 right-0 w-64 h-64 bg-amber-500/5 rounded-full -mr-32 -mt-32 blur-3xl"></div>
+          <h3 className="text-xs font-black text-slate-500 uppercase mb-8 flex items-center gap-4 tracking-widest relative z-10">
+            <ListFilter size={20} className="text-amber-500" /> Pile d'attente horodatée ({waitingPile.length})
           </h3>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 relative z-10">
             {waitingPile.map((item) => (
-              <div key={item.id} className="bg-white p-4 rounded-2xl shadow-sm border-2 border-amber-200 flex items-center justify-between animate-in zoom-in-95">
-                <span className="font-black text-amber-700 mono text-lg">{new Date(item.timestamp).toLocaleTimeString()}</span>
-                <button onClick={() => setWaitingPile(p => p.filter(x => x.id !== item.id))} className="p-2 text-red-300 hover:text-red-500 transition-colors">
+              <div key={item.id} className="bg-white/5 p-6 rounded-2xl border border-white/5 flex items-center justify-between hover:bg-white/10 transition-colors">
+                <span className="font-black text-white mono text-xl">{new Date(item.timestamp).toLocaleTimeString()}</span>
+                <button onClick={() => setWaitingPile(p => p.filter(x => x.id !== item.id))} className="p-2 text-slate-600 hover:text-red-500 transition-colors">
                   <X size={20} />
                 </button>
               </div>
             ))}
             {waitingPile.length === 0 && (
-              <div className="col-span-full py-6 text-center text-amber-300 font-bold italic">Aucun temps en attente</div>
+              <div className="col-span-full py-10 text-center text-slate-700 font-black uppercase tracking-widest italic opacity-30">
+                Aucun temps en file
+              </div>
             )}
           </div>
         </div>
 
-        <div className="bg-red-50 rounded-[2.5rem] p-8 border-2 border-red-100 shadow-sm">
-          <h3 className="text-sm font-black text-red-600 uppercase mb-6 flex items-center gap-3">
-            <AlertCircle size={20} /> Signalement Abandons
+        <div className="bg-red-50/50 rounded-[3rem] p-10 border border-red-100 shadow-xl">
+          <h3 className="text-xs font-black text-red-600 uppercase mb-8 flex items-center gap-4 tracking-widest">
+            <AlertCircle size={20} /> Déclaration Abandon
           </h3>
-          <div className="space-y-4">
-            <input 
-              type="text" 
-              placeholder="N° de dossard..."
-              className="w-full bg-white border-2 border-red-100 rounded-2xl px-6 py-4 font-black text-lg outline-none focus:border-red-500"
-              value={dnfInput}
-              onChange={e => setDnfInput(e.target.value)}
-            />
+          <div className="space-y-6">
+            <div className="relative">
+               <Zap className="absolute left-6 top-1/2 -translate-y-1/2 text-red-200" size={24} />
+               <input 
+                type="text" 
+                placeholder="N° de dossard..."
+                className="w-full bg-white border-2 border-red-50 rounded-2xl pl-16 pr-6 py-6 font-black text-2xl text-red-600 outline-none focus:border-red-500 shadow-sm"
+                value={dnfInput}
+                onChange={e => setDnfInput(e.target.value)}
+              />
+            </div>
             <button 
               onClick={() => processPassage(dnfInput, true)}
-              className="w-full bg-red-600 text-white py-4 rounded-2xl font-black shadow-lg shadow-red-100 hover:bg-red-700 transition-all"
+              className="w-full bg-red-600 text-white py-6 rounded-3xl font-black text-xl shadow-xl shadow-red-200 hover:bg-red-700 active:scale-95 transition-all uppercase tracking-widest"
             >
-              DÉCLARER DNF
+              Signaler DNF
             </button>
           </div>
         </div>

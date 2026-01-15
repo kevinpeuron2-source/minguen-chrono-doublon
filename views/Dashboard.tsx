@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { collection, onSnapshot, doc, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Race, Participant, RaceStatus, Passage } from '../types';
-import { Trophy, Users, Activity, Flag, Edit3, Check } from 'lucide-react';
+import { Trophy, Users, Activity, Flag, Edit3, Check, ChevronRight } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { useDatabase } from '../context/DatabaseContext';
 
@@ -22,7 +22,6 @@ const Dashboard: React.FC = () => {
   useEffect(() => {
     const unsubRaces = onSnapshot(collection(db, 'races'), (snap) => {
       setRaces(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Race)));
-      setDbError(null);
     }, handleError);
 
     const unsubParticipants = onSnapshot(collection(db, 'participants'), (snap) => {
@@ -45,7 +44,7 @@ const Dashboard: React.FC = () => {
       unsubPassages();
       unsubSettings();
     };
-  }, [handleError, setDbError]);
+  }, [handleError]);
 
   const saveEventName = async () => {
     try {
@@ -57,10 +56,10 @@ const Dashboard: React.FC = () => {
   };
 
   const stats = [
-    { label: 'Courses', value: races.length, icon: Flag, color: 'bg-blue-500' },
-    { label: 'En direct', value: races.filter(r => r.status === RaceStatus.RUNNING).length, icon: Activity, color: 'bg-emerald-500' },
-    { label: 'Participants', value: participants.length, icon: Users, color: 'bg-indigo-500' },
-    { label: 'Passages CP', value: passages.length, icon: Trophy, color: 'bg-amber-500' },
+    { label: 'Courses', value: races.length, icon: Flag, color: 'from-blue-600 to-blue-700', shadow: 'shadow-blue-200' },
+    { label: 'Live', value: races.filter(r => r.status === RaceStatus.RUNNING).length, icon: Activity, color: 'from-emerald-500 to-teal-600', shadow: 'shadow-emerald-200' },
+    { label: 'Inscrits', value: participants.length, icon: Users, color: 'from-indigo-600 to-violet-700', shadow: 'shadow-indigo-200' },
+    { label: 'Passages', value: passages.length, icon: Trophy, color: 'from-amber-500 to-orange-600', shadow: 'shadow-amber-200' },
   ];
 
   const chartData = races.map(r => ({
@@ -71,76 +70,88 @@ const Dashboard: React.FC = () => {
   if (isPermissionDenied) return null;
 
   return (
-    <div className="space-y-8">
-      <header className="flex justify-between items-start">
+    <div className="space-y-10 animate-in fade-in duration-700">
+      <header className="flex justify-between items-end">
         <div>
-          <div className="flex items-center gap-3 group">
+          <div className="flex items-center gap-4 group">
             {isEditingName ? (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3 bg-white p-2 rounded-2xl shadow-xl border border-blue-100">
                 <input 
                   type="text" 
                   value={eventName}
                   onChange={(e) => setEventName(e.target.value)}
-                  className="text-3xl font-black text-slate-900 border-b-4 border-blue-500 outline-none bg-transparent w-full max-w-lg"
+                  className="text-4xl font-black text-slate-900 outline-none bg-transparent px-4 py-2 w-full max-w-2xl"
                   autoFocus
                   onKeyDown={(e) => e.key === 'Enter' && saveEventName()}
                 />
-                <button onClick={saveEventName} className="p-2 bg-emerald-500 text-white rounded-xl shadow-lg hover:bg-emerald-600 transition-colors">
-                  <Check size={20} />
+                <button onClick={saveEventName} className="p-4 bg-blue-600 text-white rounded-xl shadow-lg hover:bg-blue-700 transition-all active:scale-90">
+                  <Check size={24} />
                 </button>
               </div>
             ) : (
               <>
-                <h1 className="text-3xl font-black text-slate-900 tracking-tight">{eventName}</h1>
+                <h1 className="text-5xl font-black text-slate-900 tracking-tighter uppercase">{eventName}</h1>
                 <button 
                   onClick={() => setIsEditingName(true)}
-                  className="p-2 text-slate-300 hover:text-blue-500 hover:bg-blue-50 rounded-xl transition-all opacity-0 group-hover:opacity-100"
+                  className="p-3 text-slate-300 hover:text-blue-600 hover:bg-blue-50 rounded-2xl transition-all opacity-0 group-hover:opacity-100"
                 >
-                  <Edit3 size={18} />
+                  <Edit3 size={24} />
                 </button>
               </>
             )}
           </div>
-          <p className="text-slate-500 font-medium mt-1">Tableau de bord de votre événement</p>
+          <p className="text-slate-400 font-bold mt-2 uppercase tracking-[0.2em] text-xs">Aperçu global des performances en temps réel</p>
         </div>
       </header>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
         {stats.map((stat, i) => {
           const Icon = stat.icon;
           return (
-            <div key={i} className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex items-center space-x-4 hover:border-blue-100 transition-colors">
-              <div className={`${stat.color} p-4 rounded-2xl text-white shadow-lg`}>
-                <Icon size={24} />
+            <div key={i} className="group bg-white p-8 rounded-[2.5rem] shadow-[0_20px_50px_rgba(0,0,0,0.02)] border border-slate-100 flex flex-col items-start space-y-4 hover:border-blue-200 hover:translate-y-[-5px] transition-all duration-300">
+              <div className={`bg-gradient-to-br ${stat.color} p-4 rounded-2xl text-white ${stat.shadow} shadow-lg group-hover:scale-110 transition-transform`}>
+                <Icon size={28} />
               </div>
               <div>
-                <p className="text-sm font-bold text-slate-400 uppercase tracking-wider">{stat.label}</p>
-                <p className="text-3xl font-black text-slate-900">{stat.value}</p>
+                <p className="text-xs font-black text-slate-400 uppercase tracking-widest">{stat.label}</p>
+                <p className="text-4xl font-black text-slate-900 mt-1">{stat.value}</p>
               </div>
             </div>
           );
         })}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
-          <h2 className="text-xl font-black mb-6 flex items-center gap-2">
-            <Users size={20} className="text-blue-500" />
-            Répartition par course
-          </h2>
-          <div className="h-80">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
+        <div className="lg:col-span-2 bg-white p-10 rounded-[3rem] shadow-[0_20px_50px_rgba(0,0,0,0.02)] border border-slate-100">
+          <div className="flex justify-between items-center mb-10">
+            <h2 className="text-2xl font-black text-slate-900 flex items-center gap-3">
+              <Users size={24} className="text-blue-500" />
+              Répartition des Athlètes
+            </h2>
+          </div>
+          <div className="h-96">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData}>
+              <BarChart data={chartData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12, fontWeight: 700}} dy={10} />
-                <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12, fontWeight: 700}} />
-                <Tooltip 
-                  cursor={{fill: '#f8fafc'}}
-                  contentStyle={{borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', padding: '12px'}}
+                <XAxis 
+                  dataKey="name" 
+                  axisLine={false} 
+                  tickLine={false} 
+                  tick={{fill: '#94a3b8', fontSize: 11, fontWeight: 900}} 
+                  dy={15}
                 />
-                <Bar dataKey="count" radius={[8, 8, 0, 0]} barSize={40}>
+                <YAxis 
+                  axisLine={false} 
+                  tickLine={false} 
+                  tick={{fill: '#94a3b8', fontSize: 11, fontWeight: 900}} 
+                />
+                <Tooltip 
+                  cursor={{fill: '#f8fafc', radius: 12}}
+                  contentStyle={{borderRadius: '24px', border: 'none', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.1)', padding: '20px', fontWeight: 'bold'}}
+                />
+                <Bar dataKey="count" radius={[12, 12, 0, 0]} barSize={45}>
                   {chartData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={['#3b82f6', '#6366f1', '#8b5cf6', '#a855f7'][index % 4]} />
+                    <Cell key={`cell-${index}`} fill={['#2563eb', '#4f46e5', '#7c3aed', '#9333ea'][index % 4]} />
                   ))}
                 </Bar>
               </BarChart>
@@ -148,34 +159,41 @@ const Dashboard: React.FC = () => {
           </div>
         </div>
 
-        <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
-          <h2 className="text-xl font-black mb-6 flex items-center gap-2">
-            <Activity size={20} className="text-emerald-500" />
-            Activités récentes
+        <div className="bg-slate-950 p-10 rounded-[3rem] shadow-2xl text-white relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-64 h-64 bg-blue-600/10 rounded-full -mr-32 -mt-32 blur-3xl"></div>
+          
+          <h2 className="text-2xl font-black mb-8 flex items-center gap-3 relative z-10">
+            <Activity size={24} className="text-emerald-400" />
+            Live Feed
           </h2>
-          <div className="space-y-4">
-            {passages.sort((a,b) => b.timestamp - a.timestamp).slice(0, 8).map(p => (
-              <div key={p.id} className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 border border-slate-100 hover:border-blue-200 transition-colors">
-                <div className="flex items-center space-x-3">
-                  <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-black">
+          <div className="space-y-4 relative z-10">
+            {passages.sort((a,b) => b.timestamp - a.timestamp).slice(0, 7).map((p, idx) => (
+              <div key={p.id} className="group flex items-center justify-between p-4 rounded-2xl bg-white/5 border border-white/5 hover:bg-white/10 hover:border-blue-500/30 transition-all duration-300">
+                <div className="flex items-center space-x-4">
+                  <div className="w-12 h-12 rounded-xl bg-blue-600/20 text-blue-400 flex items-center justify-center font-black text-lg border border-blue-500/20">
                     {p.bib}
                   </div>
                   <div>
-                    <p className="font-bold text-sm text-slate-900">{p.checkpointName}</p>
-                    <p className="text-xs text-slate-400 font-medium">{new Date(p.timestamp).toLocaleTimeString()}</p>
+                    <p className="font-black text-sm uppercase tracking-tight">{p.checkpointName}</p>
+                    <p className="text-[10px] text-slate-500 font-bold uppercase">{new Date(p.timestamp).toLocaleTimeString()}</p>
                   </div>
                 </div>
-                <div className="text-right">
-                   <p className="font-mono font-bold text-blue-600 text-sm">OK</p>
-                </div>
+                <ChevronRight size={16} className="text-slate-700 group-hover:text-blue-400 group-hover:translate-x-1 transition-all" />
               </div>
             ))}
             {passages.length === 0 && (
-              <div className="text-center py-12 text-slate-400">
-                Aucune activité enregistrée
+              <div className="text-center py-20 text-slate-600 flex flex-col items-center gap-4">
+                <Activity size={40} className="opacity-20" />
+                <p className="font-bold text-sm uppercase tracking-widest opacity-50">En attente de données...</p>
               </div>
             )}
           </div>
+          
+          {passages.length > 0 && (
+            <div className="mt-8 pt-6 border-t border-white/5 text-center">
+              <button className="text-[10px] font-black text-blue-400 uppercase tracking-widest hover:text-white transition-colors">Voir tous les passages</button>
+            </div>
+          )}
         </div>
       </div>
     </div>
