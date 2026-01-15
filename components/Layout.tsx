@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, 
@@ -8,7 +8,9 @@ import {
   Trophy, 
   Settings,
   ShieldCheck,
-  ExternalLink
+  ExternalLink,
+  Menu,
+  X
 } from 'lucide-react';
 import { useDatabase } from '../context/DatabaseContext';
 import FirebaseErrorBanner from './FirebaseErrorBanner';
@@ -16,7 +18,13 @@ import FirebaseErrorBanner from './FirebaseErrorBanner';
 const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
   const { dbError } = useDatabase();
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   
+  // Fermer le menu mobile lors d'un changement de page
+  useEffect(() => {
+    setIsMobileMenuOpen(false);
+  }, [location]);
+
   const navItems = [
     { path: '/', icon: LayoutDashboard, label: 'Tableau de bord' },
     { path: '/races', icon: Flag, label: 'Épreuves' },
@@ -29,7 +37,30 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
   return (
     <div className="flex min-h-screen bg-[#f8fafc]">
-      <aside className="w-72 bg-slate-950 text-white flex flex-col fixed h-full z-20 shadow-[10px_0_40px_rgba(0,0,0,0.1)]">
+      {/* Overlay pour mobile - flou d'arrière-plan quand le menu est ouvert */}
+      {isMobileMenuOpen && (
+        <div 
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[40] lg:hidden transition-opacity duration-300"
+          onClick={() => setIsMobileMenuOpen(false)}
+        />
+      )}
+
+      {/* Bouton Menu Mobile (visible uniquement sur mobile/tablette) */}
+      <div className="lg:hidden fixed top-6 left-6 z-[60]">
+        <button 
+          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+          className="p-4 bg-slate-950 text-white rounded-[1.25rem] shadow-2xl shadow-slate-900/40 hover:scale-105 active:scale-95 transition-all"
+        >
+          {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
+        </button>
+      </div>
+
+      {/* Sidebar - Fixe sur Desktop, Tiroir sur Mobile */}
+      <aside className={`
+        fixed h-full w-72 bg-slate-950 text-white flex flex-col z-[50] 
+        shadow-[10px_0_40px_rgba(0,0,0,0.1)] transition-transform duration-500 ease-in-out
+        ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+      `}>
         <div className="p-8">
           <div className="bg-white p-3 rounded-[1.5rem] mb-6 w-fit shadow-2xl rotate-[-2deg] hover:rotate-0 transition-transform duration-500">
             <img 
@@ -45,7 +76,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           <p className="text-[9px] text-slate-500 mt-2 uppercase tracking-[0.3em] font-black opacity-70">Professional Timing System</p>
         </div>
         
-        <nav className="flex-1 px-4 space-y-2 mt-4">
+        <nav className="flex-1 px-4 space-y-2 mt-4 overflow-y-auto scrollbar-hide">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = location.pathname === item.path || 
@@ -69,7 +100,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             );
           })}
 
-          <div className="pt-8 mt-8 border-t border-white/5 space-y-3">
+          <div className="pt-8 mt-8 border-t border-white/5 space-y-3 pb-8">
             <Link
               to="/live"
               target="_blank"
@@ -94,13 +125,18 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.8)]"></div>
             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Cloud Engine Active</span>
           </div>
-          <p className="text-[8px] text-slate-600 mt-2 font-bold italic">BY K. PEURON • v2.5 PRO</p>
+          <p className="text-[8px] text-slate-600 mt-2 font-bold italic uppercase">BY K. PEURON • v2.5 PRO</p>
         </div>
       </aside>
 
-      <main className="flex-1 ml-72 p-10 transition-all duration-300">
-        <FirebaseErrorBanner error={dbError} />
-        <div className="max-w-7xl mx-auto">
+      {/* Zone de contenu principal */}
+      <main className={`
+        flex-1 p-6 md:p-10 transition-all duration-300 min-h-screen
+        ${isMobileMenuOpen ? 'blur-sm lg:blur-none' : ''}
+        lg:ml-72
+      `}>
+        <div className="max-w-7xl mx-auto pt-20 lg:pt-0">
+          <FirebaseErrorBanner error={dbError} />
           {children}
         </div>
       </main>
