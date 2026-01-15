@@ -73,7 +73,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           <h1 className="text-2xl font-black tracking-tighter text-white leading-none">
             MINGUEN <span className="text-blue-500">CHRONO</span>
           </h1>
-          <p className="text-[9px] text-slate-500 mt-2 uppercase tracking-[0.3em] font-black opacity-70">Professional Timing System</p>
+          <p className="text-[9px] text-slate-500 mt-2 uppercase tracking-[0.3em] font-black opacity-70">by K. PEURON</p>
         </div>
         
         <nav className="flex-1 px-4 space-y-2 mt-4 overflow-y-auto scrollbar-hide">

@@ -153,7 +153,10 @@ const LiveView: React.FC = () => {
             </div>
             <div>
               <h1 className="text-4xl font-black text-white uppercase tracking-tighter">{eventName}</h1>
-              <p className="text-blue-500 font-black tracking-widest text-sm uppercase">Direct Arrivées • {selectedRace?.name}</p>
+              <div className="flex items-center gap-3">
+                <p className="text-blue-500 font-black tracking-widest text-sm uppercase">Direct Arrivées • {selectedRace?.name}</p>
+                <span className="text-slate-600 text-xs font-black uppercase">by K. PEURON</span>
+              </div>
             </div>
           </div>
           <button onClick={() => setIsTVMode(false)} className="p-6 bg-white/5 text-white/40 hover:text-white rounded-full transition-all">
@@ -183,7 +186,7 @@ const LiveView: React.FC = () => {
                 </div>
                 <div className="bg-white/5 p-12 rounded-[4rem] border border-white/10 text-center">
                   <p className="text-slate-500 font-black text-xl uppercase mb-2">Temps Officiel</p>
-                  <p className="text-8xl font-black text-white mono">
+                  <p className="text-6xl font-black text-white mono">
                     {formatDuration(currentFinisher.lastPassage?.netTime || 0).split('.')[0]}
                   </p>
                 </div>
@@ -413,7 +416,7 @@ const RunnerCard: React.FC<{
         </div>
 
         <div className="text-right">
-          <p className="text-lg font-black text-blue-400 mono">
+          <p className="text-base font-black text-blue-400 mono">
             {runner.lastPassage ? formatDuration(runner.lastPassage.netTime).split('.')[0] : '--:--:--'}
           </p>
           <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">

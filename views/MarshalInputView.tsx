@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { collection, onSnapshot, addDoc, doc, setDoc, query, where, orderBy, limit } from 'firebase/firestore';
 import { useSearchParams } from 'react-router-dom';
@@ -128,7 +127,7 @@ const MarshalInputView: React.FC = () => {
         </div>
 
         <div className="text-center text-slate-400 text-xs font-bold uppercase tracking-widest">
-           Logiciel Minguen Chrono • Supervision Terrain
+           by K. PEURON
         </div>
       </div>
     </div>
