@@ -93,6 +93,9 @@ const LiveView: React.FC = () => {
         const mandatoryPassages = pPassages.filter(pas => mandatoryIds.has(pas.checkpointId));
         const lastMandatoryPassage = mandatoryPassages[mandatoryPassages.length - 1];
 
+        // Calcul de progression : si fini, c'est 100%. Sinon calcul basé sur les points obligatoires passés.
+        const calculatedProgress = (mandatoryPassages.length / (mandatoryCps.length + 1)) * 100;
+
         return {
           ...p,
           passages: pPassages,
@@ -100,7 +103,7 @@ const LiveView: React.FC = () => {
           lastPassage,
           lastMandatoryPassage,
           isFinished,
-          progress: (mandatoryPassages.length / (mandatoryCps.length + 1)) * 100
+          progress: isFinished ? 100 : calculatedProgress
         };
       })
       .sort((a, b) => {
