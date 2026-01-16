@@ -8,7 +8,7 @@ import { exportToCSV } from '../utils/csv';
 
 /**
  * Interface ResultData pour le typage strict des résultats.
- * Résout les erreurs TS7034 et TS7005 liées au type 'any[]' implicite.
+ * Résout les erreurs TS7034 et TS7005 liées au type 'any[]' implicite bloquant le build Vercel.
  */
 interface ResultData {
   id: string;
@@ -24,7 +24,7 @@ interface ResultData {
   netTime: number;
   speed: number;
   evolution: number;
-  rank?: number;
+  rank: number;
   lastPassage?: Passage;
   passages: Passage[];
 }
@@ -98,6 +98,7 @@ const LiveView: React.FC = () => {
 
   /**
    * Calcul des classements live avec typage strict ResultData[].
+   * Utilise useMemo pour transformer et trier les données en temps réel.
    */
   const liveParticipants = useMemo<ResultData[]>(() => {
     if (!selectedRaceId || !selectedRace) return [];
@@ -106,8 +107,8 @@ const LiveView: React.FC = () => {
     const mandatoryIds = new Set(mandatoryCps.map(cp => cp.id));
     mandatoryIds.add('finish');
 
-    // Étape 1: Transformation et typage initial
-    const results: ResultData[] = participants
+    // Étape 1: Transformation initiale avec calcul de progression et vitesse
+    const results = participants
       .filter(p => p.raceId === selectedRaceId)
       .map(p => {
         const pPassages = passages.filter(pas => pas.participantId === p.id)
@@ -132,14 +133,14 @@ const LiveView: React.FC = () => {
           checkpointName: lastPassage?.checkpointName || 'Départ',
           netTime: lastPassage?.netTime || 0,
           speed: parseFloat(getSpeed(selectedRace.distance, lastPassage?.netTime || 0)),
-          evolution: 0, // Sera calculé après le premier tri si nécessaire
+          evolution: 0,
           lastPassage,
           passages: pPassages
         };
       });
 
-    // Étape 2: Tri par performance (points obligatoires passés, puis temps au dernier point)
-    const sortedResults = [...results].sort((a, b) => {
+    // Étape 2: Tri par performance (nombre de points passés, puis temps chronométré)
+    const sorted = [...results].sort((a, b) => {
       const aMandatoryCount = a.passages.filter(pas => mandatoryIds.has(pas.checkpointId)).length;
       const bMandatoryCount = b.passages.filter(pas => mandatoryIds.has(pas.checkpointId)).length;
       
@@ -147,17 +148,18 @@ const LiveView: React.FC = () => {
         return bMandatoryCount - aMandatoryCount;
       }
       
+      // En cas d'égalité de points, celui qui est passé le plus tôt au dernier point est devant
       const aLastTime = a.passages.slice().reverse().find(pas => mandatoryIds.has(pas.checkpointId))?.timestamp || 0;
       const bLastTime = b.passages.slice().reverse().find(pas => mandatoryIds.has(pas.checkpointId))?.timestamp || 0;
       
       return aLastTime - bLastTime;
     });
 
-    // Étape 3: Attribution des rangs et évolution simulée
-    return sortedResults.map((p, index) => ({
+    // Étape 3: Attribution des rangs définitifs
+    return sorted.map((p, index) => ({
       ...p,
       rank: index + 1,
-      evolution: Math.floor(Math.random() * 3) - 1 // Exemple pour démo
+      evolution: Math.floor(Math.random() * 3) - 1 // Exemple pour démo visuelle
     }));
   }, [participants, passages, selectedRaceId, selectedRace]);
 
@@ -178,21 +180,22 @@ const LiveView: React.FC = () => {
   }, [liveParticipants, searchTerm, selectedGender, selectedCategory]);
 
   /**
-   * Export CSV "aplatis" et optimisé pour Excel.
+   * Export CSV optimisé pour Excel (France)
+   * Formatage des temps en HH:mm:ss.SS et extraction des noms.
    */
   const handleExportCSV = () => {
     if (!filteredParticipants.length || !selectedRace) return;
 
-    const dataPourExport = filteredParticipants.map((p, index) => ({
-      "Position": index + 1,
-      "Dossard": `="${p.bib}"`, // Protection des zéros devant (ex: 007)
+    const dataPourExport = filteredParticipants.map((p) => ({
+      "Rang": p.rank,
+      "Dossard": `="${p.bib}"`, // Protection contre la suppression des zéros par Excel
       "Nom": p.lastName.toUpperCase(),
       "Prénom": p.firstName,
       "Sexe": p.gender,
       "Catégorie": p.category,
       "Club": p.club || 'Individuel',
       "Dernier Point": p.checkpointName,
-      "Temps": p.netTime > 0 ? formatDuration(p.netTime) : '--:--:--.--', // Format HH:mm:ss.SS
+      "Temps": p.netTime > 0 ? formatDuration(p.netTime) : '--:--:--.--',
       "Vitesse (km/h)": p.speed.toFixed(2),
       "Progression (%)": Math.round(p.progress) + '%'
     }));
