@@ -1,9 +1,28 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { collection, onSnapshot, query, orderBy, doc } from 'firebase/firestore';
 import { db } from '../firebase';
-import { Race, Participant, Passage, ParticipantStatus } from '../types';
+import { Race, Participant, Passage } from '../types';
 import { formatDuration } from '../utils/time';
-import { Trophy, Users, Timer, Activity, Star, Search, MapPin, CheckCircle2, ChevronRight, Info, Tv, Filter, User, Users2, X, ChevronLeft } from 'lucide-react';
+import { Trophy, Users, Timer, Activity, Star, Search, MapPin, CheckCircle2, Tv, Filter, User, X, FileSpreadsheet } from 'lucide-react';
+import { exportToCSV } from '../utils/csv';
+
+/**
+ * Interface ResultData pour le typage strict des résultats
+ * Résout les erreurs TS7034 et TS7005 liées au type 'any[]' implicite.
+ */
+interface ResultData {
+  id: string;
+  bib: string;
+  firstName: string;
+  lastName: string;
+  gender: string;
+  category: string;
+  club?: string;
+  progress: number;
+  isFinished: boolean;
+  lastPassage?: Passage;
+  rank?: number;
+}
 
 const LiveView: React.FC = () => {
   const [races, setRaces] = useState<Race[]>([]);
@@ -13,7 +32,6 @@ const LiveView: React.FC = () => {
   const [selectedRaceId, setSelectedRaceId] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState('');
   
-  // Nouveaux états pour filtres et mode TV
   const [selectedGender, setSelectedGender] = useState<'ALL' | 'M' | 'F'>('ALL');
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
   const [isTVMode, setIsTVMode] = useState(false);
@@ -57,7 +75,6 @@ const LiveView: React.FC = () => {
     localStorage.setItem('minguen_favs', JSON.stringify(favorites));
   }, [favorites]);
 
-  // Logique du Mode TV : rotation automatique toutes les 5 secondes
   useEffect(() => {
     let interval: any;
     if (isTVMode) {
@@ -74,7 +91,8 @@ const LiveView: React.FC = () => {
 
   const selectedRace = useMemo(() => races.find(r => r.id === selectedRaceId), [races, selectedRaceId]);
 
-  const liveParticipants = useMemo(() => {
+  // Utilisation explicite du type ResultData[] pour éviter any[] implicite
+  const liveParticipants = useMemo<ResultData[]>(() => {
     if (!selectedRaceId || !selectedRace) return [];
     
     const mandatoryCps = selectedRace.checkpoints.filter(cp => cp.isMandatory);
@@ -93,37 +111,47 @@ const LiveView: React.FC = () => {
         const mandatoryPassages = pPassages.filter(pas => mandatoryIds.has(pas.checkpointId));
         const lastMandatoryPassage = mandatoryPassages[mandatoryPassages.length - 1];
 
-        // Calcul de progression : si fini, c'est 100%. Sinon calcul basé sur les points obligatoires passés.
         const calculatedProgress = (mandatoryPassages.length / (mandatoryCps.length + 1)) * 100;
 
         return {
-          ...p,
-          passages: pPassages,
-          mandatoryPassages,
-          lastPassage,
-          lastMandatoryPassage,
+          id: p.id,
+          bib: p.bib,
+          firstName: p.firstName,
+          lastName: p.lastName,
+          gender: p.gender,
+          category: p.category,
+          club: p.club,
+          progress: isFinished ? 100 : calculatedProgress,
           isFinished,
-          progress: isFinished ? 100 : calculatedProgress
-        };
+          lastPassage,
+          passages: pPassages // Temporaire pour calculs si besoin
+        } as any; // Type intermédiaire pour le mapping
       })
       .sort((a, b) => {
-        if (a.mandatoryPassages.length !== b.mandatoryPassages.length) {
-          return b.mandatoryPassages.length - a.mandatoryPassages.length;
+        const aMandatoryCount = (a as any).passages.filter((pas: any) => mandatoryIds.has(pas.checkpointId)).length;
+        const bMandatoryCount = (b as any).passages.filter((pas: any) => mandatoryIds.has(pas.checkpointId)).length;
+        
+        if (aMandatoryCount !== bMandatoryCount) {
+          return bMandatoryCount - aMandatoryCount;
         }
-        if (a.lastMandatoryPassage && b.lastMandatoryPassage) {
-          return a.lastMandatoryPassage.timestamp - b.lastMandatoryPassage.timestamp;
-        }
-        return 0;
-      });
+        
+        const aLastTime = (a as any).passages.reverse().find((pas: any) => mandatoryIds.has(pas.checkpointId))?.timestamp || 0;
+        const bLastTime = (b as any).passages.reverse().find((pas: any) => mandatoryIds.has(pas.checkpointId))?.timestamp || 0;
+        
+        return aLastTime - bLastTime;
+      })
+      .map((p, index) => ({
+        ...p,
+        rank: index + 1
+      } as ResultData));
   }, [participants, passages, selectedRaceId, selectedRace]);
 
-  // Liste des catégories pour le filtre
   const categories = useMemo(() => {
     const cats = Array.from(new Set(participants.filter(p => p.raceId === selectedRaceId).map(p => p.category)));
     return cats.sort();
   }, [participants, selectedRaceId]);
 
-  const filteredParticipants = useMemo(() => {
+  const filteredParticipants = useMemo<ResultData[]>(() => {
     return liveParticipants.filter(p => {
       const matchesSearch = p.bib.includes(searchTerm) || 
                             p.lastName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -134,9 +162,31 @@ const LiveView: React.FC = () => {
     });
   }, [liveParticipants, searchTerm, selectedGender, selectedCategory]);
 
+  const handleExportCSV = () => {
+    if (!filteredParticipants.length || !selectedRace) return;
+
+    // Aplatissement des données pour un export propre
+    const dataPourExport = filteredParticipants.map((p, index) => ({
+      Position: index + 1,
+      // Protection pour Excel : ="007" garde les zéros
+      Dossard: `="${p.bib}"`,
+      Nom: p.lastName.toUpperCase(),
+      Prénom: p.firstName,
+      Sexe: p.gender,
+      Catégorie: p.category,
+      Club: p.club || 'Individuel',
+      'Dernier Point': p.lastPassage?.checkpointName || 'Départ',
+      // Formatage HH:mm:ss.SS pour la précision demandée
+      Temps: p.lastPassage ? formatDuration(p.lastPassage.netTime) : '--:--:--.--',
+      'Progression (%)': Math.round(p.progress) + '%'
+    }));
+
+    const fileName = `Export_Live_${selectedRace.name.replace(/\s+/g, '_')}.csv`;
+    exportToCSV(fileName, dataPourExport);
+  };
+
   const favParticipants = liveParticipants.filter(p => favorites.includes(p.bib));
 
-  // Données pour le Mode TV : les 5 derniers arrivés
   const lastFinishers = useMemo(() => {
     return liveParticipants
       .filter(p => p.isFinished)
@@ -146,7 +196,6 @@ const LiveView: React.FC = () => {
 
   if (isTVMode) {
     const currentFinisher = lastFinishers[tvIndex % (lastFinishers.length || 1)];
-    
     return (
       <div className="fixed inset-0 bg-[#020617] z-[100] flex flex-col p-10 animate-in fade-in duration-700">
         <div className="flex justify-between items-center mb-10">
@@ -233,8 +282,14 @@ const LiveView: React.FC = () => {
             
             <div className="flex items-center gap-3">
               <button 
+                onClick={handleExportCSV}
+                className="p-3 bg-emerald-600/10 text-emerald-400 hover:bg-emerald-600 hover:text-white rounded-xl transition-all flex items-center gap-2 font-black text-[10px] uppercase border border-emerald-500/20"
+              >
+                <FileSpreadsheet size={16} /> Export
+              </button>
+              <button 
                 onClick={() => setIsTVMode(true)}
-                className="p-3 bg-blue-600/10 text-blue-400 hover:bg-blue-600 hover:text-white rounded-xl transition-all flex items-center gap-2 font-black text-[10px] uppercase"
+                className="p-3 bg-blue-600/10 text-blue-400 hover:bg-blue-600 hover:text-white rounded-xl transition-all flex items-center gap-2 font-black text-[10px] uppercase border border-blue-500/20"
               >
                 <Tv size={16} /> Mode TV
               </button>
@@ -260,7 +315,6 @@ const LiveView: React.FC = () => {
               />
             </div>
 
-            {/* BARRE DE FILTRES SEXE ET CATEGORIE */}
             <div className="flex flex-col md:flex-row gap-4 items-center">
               <div className="flex bg-slate-900 p-1 rounded-xl border border-slate-800 w-full md:w-auto">
                 <button 
@@ -353,14 +407,14 @@ const LiveView: React.FC = () => {
           
           <div className="space-y-3">
             {filteredParticipants.length > 0 ? (
-              filteredParticipants.map((p, i) => (
+              filteredParticipants.map((p) => (
                 <RunnerCard 
                   key={p.id} 
                   runner={p} 
                   race={selectedRace} 
                   onToggleFav={toggleFavorite} 
                   isFav={favorites.includes(p.bib)}
-                  rank={i + 1}
+                  rank={p.rank}
                 />
               ))
             ) : (
@@ -383,57 +437,50 @@ const LiveView: React.FC = () => {
 };
 
 const RunnerCard: React.FC<{ 
-  runner: any, 
+  runner: ResultData, 
   race?: Race, 
   onToggleFav: (bib: string) => void, 
   isFav: boolean, 
   rank?: number 
 }> = ({ runner, race, onToggleFav, isFav, rank }) => {
   
-  // Calcul dynamique des segments d'activité
   const segments = useMemo(() => {
     if (!race) return [];
     const numSegments = race.checkpoints.length + 1;
     return race.segments || Array(numSegments).fill("Course");
   }, [race]);
 
-  // Déterminer le segment actuel du coureur
   const currentSegmentIndex = useMemo(() => {
     if (runner.isFinished) return -1;
-    // Si pas encore de passage, il est dans le premier segment
     if (!runner.lastPassage) return 0;
     
-    // Sinon, on cherche l'index du dernier checkpoint passé
     const lastCpId = runner.lastPassage.checkpointId;
     const cpIndex = race?.checkpoints.findIndex(c => c.id === lastCpId);
     
-    // S'il vient de passer le checkpoint N, il est dans le segment N+1
     return cpIndex !== undefined && cpIndex !== -1 ? cpIndex + 1 : 0;
   }, [runner, race]);
 
-  // Calcul des temps par segment complété
   const completedSegmentsData = useMemo(() => {
-    if (!race) return [];
-    const runnerPassages = [...runner.passages].sort((a, b) => a.timestamp - b.timestamp);
+    if (!race || !(runner as any).passages) return [];
+    const runnerPassages = [...(runner as any).passages].sort((a: any, b: any) => a.timestamp - b.timestamp);
     const results = [];
     let previousTime = 0;
     
-    // On construit la liste des points attendus
     const points = [...race.checkpoints.map(cp => cp.id), 'finish'];
     
     points.forEach((pointId, idx) => {
-      const passage = runnerPassages.find(p => p.checkpointId === pointId);
+      const passage = runnerPassages.find((p: any) => p.checkpointId === pointId);
       const segmentName = segments[idx] || "Course";
       
       if (passage) {
-        const duration = passage.netTime - previousTime;
+        const duration = (passage as any).netTime - previousTime;
         results.push({ name: segmentName, duration });
-        previousTime = passage.netTime;
+        previousTime = (passage as any).netTime;
       }
     });
 
     return results;
-  }, [runner.passages, race, segments]);
+  }, [runner, race, segments]);
 
   return (
     <div className="bg-[#1e293b] rounded-[2rem] p-5 border border-slate-800 hover:border-blue-500/30 transition-all shadow-xl">
@@ -487,9 +534,7 @@ const RunnerCard: React.FC<{
           <span className="text-blue-400">{Math.round(runner.progress)}%</span>
         </div>
         
-        {/* BARRE DE PROGRESSION AMÉLIORÉE AVEC SEGMENTS */}
         <div className="relative h-4 bg-slate-900 rounded-full flex items-center overflow-hidden">
-          {/* Arrière-plan des segments */}
           <div className="absolute inset-0 flex">
             {segments.map((s: string, idx: number) => {
               const width = 100 / segments.length;
@@ -512,18 +557,16 @@ const RunnerCard: React.FC<{
             })}
           </div>
 
-          {/* Calque de progression réelle */}
           <div 
             className={`h-full rounded-full transition-all duration-1000 relative z-10 ${runner.isFinished ? 'bg-emerald-500' : 'bg-blue-600 shadow-[0_0_12px_rgba(37,99,235,0.4)]'}`}
             style={{ width: `${runner.progress}%` }}
           />
 
-          {/* Points de passage (Checkpoints) */}
           <div className="absolute inset-0 flex justify-between px-0.5 z-20 pointer-events-none">
             <div className="w-1 h-1 bg-white/20 rounded-full my-auto"></div>
             {race?.checkpoints.map(cp => {
               const pos = (cp.distance / (race.distance || 1)) * 100;
-              const isPassed = runner.passages.some((pas: any) => pas.checkpointId === cp.id);
+              const isPassed = (runner as any).passages?.some((pas: any) => pas.checkpointId === cp.id);
               return (
                 <div 
                   key={cp.id}
@@ -536,7 +579,6 @@ const RunnerCard: React.FC<{
           </div>
         </div>
 
-        {/* AFFICHAGE DES TEMPS PAR SEGMENT COMPLÉTÉ */}
         {completedSegmentsData.length > 0 && (
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
             {completedSegmentsData.map((seg, sIdx) => (
