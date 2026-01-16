@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { collection, onSnapshot, query, where, orderBy } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -14,7 +13,7 @@ const ResultsView: React.FC = () => {
   const [allPassages, setAllPassages] = useState<Passage[]>([]);
   
   // États de configuration de l'édition
-  const [viewMode, setViewMode] = useState<'all' | 'scratch' | 'category' | 'podium'>('all');
+  const [viewMode, setViewMode] = useState<'all' | 'scratch' | 'scratch_m' | 'scratch_f' | 'category' | 'podium'>('all');
   const [selectedCat, setSelectedCat] = useState('all');
   const [cols, setCols] = useState({
     rank: true,
@@ -57,16 +56,6 @@ const ResultsView: React.FC = () => {
       .map(p => {
         const participant = participants.find(part => part.id === p.participantId);
         
-        // Calcul évolution
-        const pPassages = allPassages.filter(pas => pas.participantId === p.participantId);
-        let evolution = 0;
-        if (pPassages.length >= 2) {
-          const lastButOne = pPassages[pPassages.length - 2];
-          // On compare le rang au dernier CP vs le rang final
-          // Pour faire simple ici, on simule l'évolution basée sur le netTime relatif
-          // Dans un système pro complet, on calculerait le rang au point T-1
-        }
-
         return {
           ...p,
           participant,
@@ -77,7 +66,11 @@ const ResultsView: React.FC = () => {
       .sort((a, b) => a.netTime - b.netTime);
 
     let filtered = finishers;
-    if (viewMode === 'category' && selectedCat !== 'all') {
+    if (viewMode === 'scratch_m') {
+      filtered = finishers.filter(f => f.participant?.gender === 'M');
+    } else if (viewMode === 'scratch_f') {
+      filtered = finishers.filter(f => f.participant?.gender === 'F');
+    } else if (viewMode === 'category' && selectedCat !== 'all') {
       filtered = finishers.filter(f => f.participant?.category === selectedCat);
     } else if (viewMode === 'podium') {
       filtered = finishers.slice(0, 3);
@@ -114,15 +107,22 @@ const ResultsView: React.FC = () => {
                 <Filter size={14} /> Filtres d'affichage
               </h3>
               <div className="space-y-2">
-                {['all', 'scratch', 'category', 'podium'].map(mode => (
+                {[
+                  { id: 'all', label: 'TOUS' },
+                  { id: 'scratch', label: 'SCRATCH TOTAL' },
+                  { id: 'scratch_m', label: 'SCRATCH HOMMES' },
+                  { id: 'scratch_f', label: 'SCRATCH FEMMES' },
+                  { id: 'category', label: 'PAR CATÉGORIE' },
+                  { id: 'podium', label: 'PODIUM (TOP 3)' }
+                ].map(mode => (
                   <button 
-                    key={mode}
-                    onClick={() => setViewMode(mode as any)}
+                    key={mode.id}
+                    onClick={() => setViewMode(mode.id as any)}
                     className={`w-full text-left px-4 py-3 rounded-xl font-bold text-sm transition-all ${
-                      viewMode === mode ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'
+                      viewMode === mode.id ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'
                     }`}
                   >
-                    {mode.toUpperCase()}
+                    {mode.label}
                   </button>
                 ))}
               </div>

@@ -24,6 +24,17 @@ export interface Checkpoint {
   isMandatory: boolean;
 }
 
+export interface GlobalCombinedPost {
+  id: string;
+  name: string;
+  assignments: {
+    raceId: string;
+    raceName: string;
+    checkpointId: string;
+    checkpointName: string;
+  }[];
+}
+
 export interface Participant {
   id: string;
   bib: string;
