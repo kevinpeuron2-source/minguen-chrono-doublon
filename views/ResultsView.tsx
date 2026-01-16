@@ -27,7 +27,7 @@ const ResultsView: React.FC = () => {
     evolution: true
   });
 
-  // Nouveau : État pour les colonnes de segments spécifiques
+  // État pour les colonnes de segments spécifiques
   const [visibleSegments, setVisibleSegments] = useState<number[]>([]);
 
   useEffect(() => {
@@ -99,7 +99,6 @@ const ResultsView: React.FC = () => {
     );
   };
 
-  // Added toggleExpand function to manage row expansion in the results table
   const toggleExpand = (bib: string) => {
     setExpandedBibs(prev => 
       prev.includes(bib) ? prev.filter(b => b !== bib) : [...prev, bib]
@@ -148,33 +147,34 @@ const ResultsView: React.FC = () => {
   const handleExportCSV = () => {
     if (!processedResults.length || !activeRace) return;
 
-    // Transformation des données pour un CSV propre et "utilisable"
+    // Transformation des données pour un CSV propre et optimisé Excel
     const exportData = processedResults.map((f, i) => {
       const row: any = {};
       
-      // Informations de base
-      row["Rang"] = i + 1;
-      row["Dossard"] = f.bib;
-      row["Nom"] = f.participant?.lastName || '';
+      // Colonnes essentielles demandées
+      row["Position"] = i + 1;
+      // Astuce Excel : format ="valeur" pour conserver les zéros devant les dossards (ex: 007)
+      row["Dossard"] = `="${f.bib}"`;
+      row["Nom"] = (f.participant?.lastName || '').toUpperCase();
       row["Prénom"] = f.participant?.firstName || '';
       row["Sexe"] = f.participant?.gender || '';
       row["Catégorie"] = f.participant?.category || '';
       row["Club"] = f.participant?.club || 'Individuel';
-      row["Temps Total"] = formatDuration(f.netTime);
-      row["Vitesse Moy (km/h)"] = f.speed;
+      // Formatage Temps en HH:mm:ss
+      row["Temps"] = formatDuration(f.netTime).split('.')[0];
+      row["Vitesse (km/h)"] = f.speed;
 
-      // Ajout des segments (splits)
+      // Inclusion des temps par segment (splits) formatés proprement
       const segmentsData = calculateSegments(f.participantId);
       segmentsData.forEach((seg, idx) => {
-        const colName = `Segment ${idx + 1} - ${seg.name}`;
-        row[colName] = seg.duration ? formatDuration(seg.duration).split('.')[0] : 'N/A';
-        row[`Total après ${seg.name}`] = seg.total ? formatDuration(seg.total).split('.')[0] : 'N/A';
+        const colName = `Split ${idx + 1} (${seg.name})`;
+        row[colName] = seg.duration ? formatDuration(seg.duration).split('.')[0] : '--:--:--';
       });
 
       return row;
     });
 
-    const fileName = `Resultats_${activeRace.name.replace(/\s+/g, '_')}_${viewMode}.csv`;
+    const fileName = `Classement_${activeRace.name.replace(/\s+/g, '_')}_${viewMode.toUpperCase()}.csv`;
     exportToCSV(fileName, exportData);
   };
 
@@ -190,7 +190,7 @@ const ResultsView: React.FC = () => {
             onClick={handleExportCSV} 
             className="bg-white border-2 border-slate-100 px-6 py-3 rounded-2xl font-black flex items-center gap-2 hover:bg-slate-50 transition-colors"
           >
-            <FileSpreadsheet size={18} className="text-emerald-600" /> CSV PROPRE
+            <FileSpreadsheet size={18} className="text-emerald-600" /> EXPORT EXCEL (CSV)
           </button>
           <button 
             onClick={() => window.print()} 
@@ -265,7 +265,7 @@ const ResultsView: React.FC = () => {
               </div>
             </div>
 
-            {/* Nouveau : Section pour les segments éditables dans la barre latérale */}
+            {/* Section pour les segments éditables dans la barre latérale */}
             <div>
               <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
                 <Activity size={14} /> Temps par Segment
@@ -314,7 +314,7 @@ const ResultsView: React.FC = () => {
                   {cols.club && <th className="py-6 px-6">Club</th>}
                   {cols.cat && <th className="py-6 px-4">Cat.</th>}
                   
-                  {/* Nouveau : Headers dynamiques pour les segments */}
+                  {/* Headers dynamiques pour les segments */}
                   {visibleSegments.map(idx => (
                     <th key={idx} className="py-6 px-4 text-emerald-600">{currentRaceSegments[idx]}</th>
                   ))}
@@ -357,7 +357,7 @@ const ResultsView: React.FC = () => {
                         {cols.club && <td className="py-6 px-6 text-xs font-bold text-slate-400 uppercase">{f.participant?.club || 'Individuel'}</td>}
                         {cols.cat && <td className="py-6 px-4 font-black text-[10px] text-slate-500">{f.participant?.category}</td>}
                         
-                        {/* Nouveau : Valeurs dynamiques pour les segments */}
+                        {/* Valeurs dynamiques pour les segments */}
                         {visibleSegments.map(idx => {
                           const seg = segmentsData[idx];
                           return (
