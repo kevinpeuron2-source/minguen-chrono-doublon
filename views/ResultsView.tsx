@@ -6,6 +6,20 @@ import { Trophy, Printer, FileSpreadsheet, Filter, Medal, Settings2, Eye, EyeOff
 import { formatDuration, getSpeed } from '../utils/time';
 import { exportToCSV } from '../utils/csv';
 
+// Interface pour typer proprement les résultats enrichis et éviter les erreurs any[]
+interface ResultWithDetails extends Passage {
+  participant?: Participant;
+  speed: string;
+  evolution: number;
+}
+
+interface SegmentResult {
+  name: string;
+  duration: number | null;
+  total: number | null;
+  pointName: string;
+}
+
 const ResultsView: React.FC = () => {
   const [races, setRaces] = useState<Race[]>([]);
   const [selectedRaceId, setSelectedRaceId] = useState('');
@@ -59,8 +73,8 @@ const ResultsView: React.FC = () => {
     return activeRace.segments || Array(numSegments).fill("Course");
   }, [activeRace]);
 
-  // Calcul complexe des classements avec évolution
-  const processedResults = useMemo(() => {
+  // Calcul complexe des classements avec évolution - Typage strict ResultWithDetails[]
+  const processedResults = useMemo<ResultWithDetails[]>(() => {
     if (!activeRace) return [];
 
     const finishers = allPassages
@@ -105,14 +119,14 @@ const ResultsView: React.FC = () => {
     );
   };
 
-  const calculateSegments = (participantId: string) => {
+  const calculateSegments = (participantId: string): SegmentResult[] => {
     if (!activeRace) return [];
     const runnerPassages = allPassages
       .filter(p => p.participantId === participantId)
       .sort((a, b) => a.timestamp - b.timestamp);
 
     const segments = currentRaceSegments;
-    const results: any[] = [];
+    const results: SegmentResult[] = [];
 
     // On construit la liste ordonnée des points de passage de la course
     const points = [...activeRace.checkpoints.map(cp => cp.id), 'finish'];
@@ -147,9 +161,10 @@ const ResultsView: React.FC = () => {
   const handleExportCSV = () => {
     if (!processedResults.length || !activeRace) return;
 
-    // Transformation des données pour un CSV propre et optimisé Excel
+    // Transformation des données pour un CSV propre et optimisé Excel (flattening)
     const exportData = processedResults.map((f, i) => {
-      const row: any = {};
+      // Record<string, string | number> évite les erreurs d'indexation TypeScript
+      const row: Record<string, string | number> = {};
       
       // Colonnes essentielles demandées
       row["Position"] = i + 1;
@@ -160,7 +175,7 @@ const ResultsView: React.FC = () => {
       row["Sexe"] = f.participant?.gender || '';
       row["Catégorie"] = f.participant?.category || '';
       row["Club"] = f.participant?.club || 'Individuel';
-      // Formatage Temps en HH:mm:ss
+      // Formatage Temps en HH:mm:ss (on retire les centièmes pour l'export Excel standard)
       row["Temps"] = formatDuration(f.netTime).split('.')[0];
       row["Vitesse (km/h)"] = f.speed;
 
@@ -168,7 +183,7 @@ const ResultsView: React.FC = () => {
       const segmentsData = calculateSegments(f.participantId);
       segmentsData.forEach((seg, idx) => {
         const colName = `Split ${idx + 1} (${seg.name})`;
-        row[colName] = seg.duration ? formatDuration(seg.duration).split('.')[0] : '--:--:--';
+        row[colName] = seg.duration !== null ? formatDuration(seg.duration).split('.')[0] : '--:--:--';
       });
 
       return row;
@@ -250,10 +265,10 @@ const ResultsView: React.FC = () => {
                 <Settings2 size={14} /> Colonnes actives
               </h3>
               <div className="grid grid-cols-1 gap-2">
-                {Object.entries(cols).map(([id, active]) => (
+                {(Object.entries(cols) as [keyof typeof cols, boolean][]).map(([id, active]) => (
                   <button 
                     key={id}
-                    onClick={() => toggleCol(id as any)}
+                    onClick={() => toggleCol(id)}
                     className={`flex items-center justify-between px-4 py-2 rounded-xl border-2 transition-all ${
                       active ? 'border-blue-100 bg-blue-50 text-blue-700' : 'border-slate-50 text-slate-300'
                     }`}
@@ -363,7 +378,7 @@ const ResultsView: React.FC = () => {
                           return (
                             <td key={idx} className="py-6 px-4">
                               <span className="font-black text-[11px] text-emerald-600 mono">
-                                {seg?.duration ? formatDuration(seg.duration).split('.')[0] : '--:--:--'}
+                                {seg?.duration !== null ? formatDuration(seg.duration).split('.')[0] : '--:--:--'}
                               </span>
                             </td>
                           );
@@ -394,8 +409,8 @@ const ResultsView: React.FC = () => {
                                     <Activity size={14} className="text-slate-200" />
                                   </div>
                                   <div className="space-y-1">
-                                    <p className="text-xl font-black text-slate-900 mono">{seg.duration ? formatDuration(seg.duration).split('.')[0] : '--:--:--'}</p>
-                                    <p className="text-[9px] font-bold text-slate-400 uppercase">Cumulé : {seg.total ? formatDuration(seg.total).split('.')[0] : '--:--:--'}</p>
+                                    <p className="text-xl font-black text-slate-900 mono">{seg.duration !== null ? formatDuration(seg.duration).split('.')[0] : '--:--:--'}</p>
+                                    <p className="text-[9px] font-bold text-slate-400 uppercase">Cumulé : {seg.total !== null ? formatDuration(seg.total).split('.')[0] : '--:--:--'}</p>
                                   </div>
                                   <div className="mt-3 pt-2 border-t border-slate-50">
                                     <span className="text-[8px] font-black text-slate-400 uppercase">Jusqu'à : {seg.pointName}</span>
