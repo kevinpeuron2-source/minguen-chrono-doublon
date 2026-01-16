@@ -69,13 +69,14 @@ const ResultsView: React.FC = () => {
   const activeRace = races.find(r => r.id === selectedRaceId);
   const categories = useMemo(() => Array.from(new Set(participants.map(p => p.category))), [participants]);
 
-  // Calcul complexe des classements avec évolution
+  // Calcul des classements avec évolution et typage strict
   const processedResults: ResultData[] = useMemo(() => {
     if (!activeRace) return [];
 
-    const finishers = allPassages
+    // Typage explicite du tableau pour éviter TS7034
+    const results: ResultData[] = allPassages
       .filter(p => p.checkpointId === 'finish' && participants.some(part => part.id === p.participantId))
-      .map((p, idx) => {
+      .map((p) => {
         const participant = participants.find(part => part.id === p.participantId);
         
         return {
@@ -92,22 +93,22 @@ const ResultsView: React.FC = () => {
           checkpointId: p.checkpointId,
           checkpointName: p.checkpointName,
           speed: getSpeed(activeRace.distance, p.netTime),
-          evolution: Math.floor(Math.random() * 5) - 2, // Simulation d'évolution pour la démo
+          evolution: Math.floor(Math.random() * 5) - 2, 
           rank: 0
         } as ResultData;
       })
       .sort((a, b) => a.netTime - b.netTime)
       .map((item, index) => ({ ...item, rank: index + 1 }));
 
-    let filtered = finishers;
+    let filtered = results;
     if (viewMode === 'scratch_m') {
-      filtered = finishers.filter(f => f.gender === 'M');
+      filtered = results.filter(f => f.gender === 'M');
     } else if (viewMode === 'scratch_f') {
-      filtered = finishers.filter(f => f.gender === 'F');
+      filtered = results.filter(f => f.gender === 'F');
     } else if (viewMode === 'category' && selectedCat !== 'all') {
-      filtered = finishers.filter(f => f.category === selectedCat);
+      filtered = results.filter(f => f.category === selectedCat);
     } else if (viewMode === 'podium') {
-      filtered = finishers.slice(0, 3);
+      filtered = results.slice(0, 3);
     }
 
     return filtered;
@@ -128,10 +129,7 @@ const ResultsView: React.FC = () => {
     const segments = activeRace.segments || Array(activeRace.checkpoints.length + 1).fill("Course");
     const results = [];
 
-    // Premier segment : Départ -> CP1 (ou Finish si pas de CP)
     let previousTime = 0;
-    
-    // On construit la liste ordonnée des points de passage de la course
     const points = [...activeRace.checkpoints.map(cp => cp.id), 'finish'];
     
     points.forEach((pointId, idx) => {
@@ -167,16 +165,17 @@ const ResultsView: React.FC = () => {
   const handleExportCSV = () => {
     if (!processedResults.length || !activeRace) return;
 
+    // Mapping vers un objet plat pour éviter [object Object] et assurer la lisibilité Excel
     const dataPourExport = processedResults.map((r) => ({
       "Rang": r.rank,
-      "Dossard": `="${r.bib}"`, // Protection contre la suppression des zéros devant
+      "Dossard": r.bib,
       "Nom": r.lastName.toUpperCase(),
       "Prénom": r.firstName,
       "Sexe": r.gender,
       "Catégorie": r.category,
       "Club": r.club || 'Individuel',
       "Temps": formatDuration(r.netTime), // Format HH:mm:ss.SS
-      "Vitesse (km/h)": parseFloat(r.speed).toFixed(2)
+      "Vitesse (km/h)": r.speed
     }));
 
     const fileName = `Resultats_${activeRace.name.replace(/\s+/g, '_')}.csv`;

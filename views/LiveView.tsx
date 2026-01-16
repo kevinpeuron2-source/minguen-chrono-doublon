@@ -107,7 +107,8 @@ const LiveView: React.FC = () => {
     const mandatoryIds = new Set(mandatoryCps.map(cp => cp.id));
     mandatoryIds.add('finish');
 
-    return participants
+    // Définition explicite de l'accumulateur pour éviter TS7034
+    const results: ResultData[] = participants
       .filter(p => p.raceId === selectedRaceId)
       .map(p => {
         const pPassages = passages.filter(pas => pas.participantId === p.id)
@@ -154,6 +155,8 @@ const LiveView: React.FC = () => {
         ...p,
         rank: index + 1
       }));
+
+    return results;
   }, [participants, passages, selectedRaceId, selectedRace]);
 
   const categories = useMemo(() => {
@@ -179,9 +182,10 @@ const LiveView: React.FC = () => {
   const handleExportCSV = () => {
     if (!filteredParticipants.length || !selectedRace) return;
 
+    // Mapping vers un objet plat pour éviter [object Object] et assurer la lisibilité Excel
     const dataPourExport = filteredParticipants.map((p) => ({
       "Rang": p.rank,
-      "Dossard": `="${p.bib}"`, // Protection contre la suppression des zéros devant (ex: "001")
+      "Dossard": p.bib,
       "Nom": p.lastName.toUpperCase(),
       "Prénom": p.firstName,
       "Sexe": p.gender,
@@ -189,7 +193,7 @@ const LiveView: React.FC = () => {
       "Club": p.club || 'Individuel',
       "Dernier Point": p.checkpointName,
       "Temps": p.netTime > 0 ? formatDuration(p.netTime) : '--:--:--.--', // Format HH:mm:ss.SS
-      "Vitesse (km/h)": parseFloat(p.speed).toFixed(2),
+      "Vitesse (km/h)": p.speed,
       "Progression (%)": Math.round(p.progress) + '%'
     }));
 
