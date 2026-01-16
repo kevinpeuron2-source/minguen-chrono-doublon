@@ -6,6 +6,27 @@ import { Trophy, Printer, FileSpreadsheet, Filter, Medal, Settings2, Eye, EyeOff
 import { formatDuration, getSpeed } from '../utils/time';
 import { exportToCSV } from '../utils/csv';
 
+/**
+ * Interface ResultData pour le typage strict des résultats.
+ */
+interface ResultData {
+  id: string;
+  bib: string;
+  firstName: string;
+  lastName: string;
+  gender: string;
+  category: string;
+  club?: string;
+  netTime: number;
+  speed: string;
+  evolution: number;
+  rank: number;
+  participantId: string;
+  participant?: Participant;
+  checkpointName: string;
+  checkpointId: string;
+}
+
 const ResultsView: React.FC = () => {
   const [races, setRaces] = useState<Race[]>([]);
   const [selectedRaceId, setSelectedRaceId] = useState('');
@@ -49,30 +70,42 @@ const ResultsView: React.FC = () => {
   const categories = useMemo(() => Array.from(new Set(participants.map(p => p.category))), [participants]);
 
   // Calcul complexe des classements avec évolution
-  const processedResults = useMemo(() => {
+  const processedResults: ResultData[] = useMemo(() => {
     if (!activeRace) return [];
 
     const finishers = allPassages
       .filter(p => p.checkpointId === 'finish' && participants.some(part => part.id === p.participantId))
-      .map(p => {
+      .map((p, idx) => {
         const participant = participants.find(part => part.id === p.participantId);
         
         return {
-          ...p,
+          id: p.id,
+          bib: p.bib,
+          firstName: participant?.firstName || 'Inconnu',
+          lastName: participant?.lastName || '',
+          gender: participant?.gender || '',
+          category: participant?.category || '',
+          club: participant?.club || '',
+          netTime: p.netTime,
+          participantId: p.participantId,
           participant,
+          checkpointId: p.checkpointId,
+          checkpointName: p.checkpointName,
           speed: getSpeed(activeRace.distance, p.netTime),
-          evolution: Math.floor(Math.random() * 5) - 2 // Simulation d'évolution pour la démo
-        };
+          evolution: Math.floor(Math.random() * 5) - 2, // Simulation d'évolution pour la démo
+          rank: 0
+        } as ResultData;
       })
-      .sort((a, b) => a.netTime - b.netTime);
+      .sort((a, b) => a.netTime - b.netTime)
+      .map((item, index) => ({ ...item, rank: index + 1 }));
 
     let filtered = finishers;
     if (viewMode === 'scratch_m') {
-      filtered = finishers.filter(f => f.participant?.gender === 'M');
+      filtered = finishers.filter(f => f.gender === 'M');
     } else if (viewMode === 'scratch_f') {
-      filtered = finishers.filter(f => f.participant?.gender === 'F');
+      filtered = finishers.filter(f => f.gender === 'F');
     } else if (viewMode === 'category' && selectedCat !== 'all') {
-      filtered = finishers.filter(f => f.participant?.category === selectedCat);
+      filtered = finishers.filter(f => f.category === selectedCat);
     } else if (viewMode === 'podium') {
       filtered = finishers.slice(0, 3);
     }
@@ -127,6 +160,29 @@ const ResultsView: React.FC = () => {
     return results;
   };
 
+  /**
+   * Export CSV optimisé.
+   * Aplatit les données pour Excel et formate les primitives.
+   */
+  const handleExportCSV = () => {
+    if (!processedResults.length || !activeRace) return;
+
+    const dataPourExport = processedResults.map((r) => ({
+      "Rang": r.rank,
+      "Dossard": `="${r.bib}"`, // Protection contre la suppression des zéros devant
+      "Nom": r.lastName.toUpperCase(),
+      "Prénom": r.firstName,
+      "Sexe": r.gender,
+      "Catégorie": r.category,
+      "Club": r.club || 'Individuel',
+      "Temps": formatDuration(r.netTime), // Format HH:mm:ss.SS
+      "Vitesse (km/h)": parseFloat(r.speed).toFixed(2)
+    }));
+
+    const fileName = `Resultats_${activeRace.name.replace(/\s+/g, '_')}.csv`;
+    exportToCSV(fileName, dataPourExport);
+  };
+
   return (
     <div className="space-y-8 pb-20">
       <header className="flex justify-between items-center">
@@ -135,7 +191,7 @@ const ResultsView: React.FC = () => {
           <p className="text-slate-500 font-medium">Composez vos classements sur mesure pour l'export ou l'affichage</p>
         </div>
         <div className="flex gap-3">
-          <button onClick={() => exportToCSV('Resultats.csv', processedResults)} className="bg-white border-2 border-slate-100 px-6 py-3 rounded-2xl font-black flex items-center gap-2">
+          <button onClick={handleExportCSV} className="bg-white border-2 border-slate-100 px-6 py-3 rounded-2xl font-black flex items-center gap-2">
             <FileSpreadsheet size={18} /> CSV
           </button>
           <button onClick={() => window.print()} className="bg-blue-600 text-white px-6 py-3 rounded-2xl font-black flex items-center gap-2 shadow-xl shadow-blue-100">
@@ -266,11 +322,11 @@ const ResultsView: React.FC = () => {
                         {cols.bib && <td className="py-6 px-4 font-black mono text-blue-600 text-xl">{f.bib}</td>}
                         {cols.name && (
                           <td className="py-6 px-6">
-                            <div className="font-black text-slate-900 uppercase">{f.participant?.lastName} {f.participant?.firstName}</div>
+                            <div className="font-black text-slate-900 uppercase">{f.lastName} {f.firstName}</div>
                           </td>
                         )}
-                        {cols.club && <td className="py-6 px-6 text-xs font-bold text-slate-400 uppercase">{f.participant?.club || '---'}</td>}
-                        {cols.cat && <td className="py-6 px-4 font-black text-[10px] text-slate-500">{f.participant?.category}</td>}
+                        {cols.club && <td className="py-6 px-6 text-xs font-bold text-slate-400 uppercase">{f.club || '---'}</td>}
+                        {cols.cat && <td className="py-6 px-4 font-black text-[10px] text-slate-500">{f.category}</td>}
                         {cols.time && <td className="py-6 px-6 font-black mono text-lg">{formatDuration(f.netTime)}</td>}
                         {cols.speed && <td className="py-6 px-6 font-black text-blue-600 mono text-sm">{f.speed} <span className="text-[10px]">km/h</span></td>}
                         {cols.evolution && (

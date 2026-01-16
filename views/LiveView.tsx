@@ -99,7 +99,6 @@ const LiveView: React.FC = () => {
 
   /**
    * Calcul des classements avec typage strict ResultData[].
-   * Utilise le pattern as ResultData pour garantir le type lors du mapping.
    */
   const liveParticipants: ResultData[] = useMemo(() => {
     if (!selectedRaceId || !selectedRace) return [];
@@ -139,8 +138,8 @@ const LiveView: React.FC = () => {
           passages: pPassages,
           mandatoryPassages,
           lastMandatoryPassage,
-          rank: 0 // Défini après le tri
-        };
+          rank: 0
+        } as ResultData;
       })
       .sort((a, b) => {
         if (a.mandatoryPassages.length !== b.mandatoryPassages.length) {
@@ -474,7 +473,7 @@ const RunnerCard: React.FC<{
   }, [runner, race]);
 
   const completedSegmentsData = useMemo(() => {
-    if (!race) return [];
+    if (!race || !runner.passages) return [];
     const runnerPassages = [...runner.passages].sort((a, b) => a.timestamp - b.timestamp);
     const results = [];
     let previousTime = 0;
