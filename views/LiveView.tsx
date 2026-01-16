@@ -2,12 +2,12 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { collection, onSnapshot, query, orderBy, doc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Race, Participant, Passage } from '../types';
-import { formatDuration } from '../utils/time';
+import { formatDuration, getSpeed } from '../utils/time';
 import { Trophy, Users, Timer, Activity, Star, Search, MapPin, CheckCircle2, Tv, Filter, User, X, FileSpreadsheet } from 'lucide-react';
 import { exportToCSV } from '../utils/csv';
 
 /**
- * Interface ResultData pour le typage strict des résultats
+ * Interface ResultData pour le typage strict des résultats.
  * Résout les erreurs TS7034 et TS7005 liées au type 'any[]' implicite.
  */
 interface ResultData {
@@ -20,8 +20,13 @@ interface ResultData {
   club?: string;
   progress: number;
   isFinished: boolean;
-  lastPassage?: Passage;
+  checkpointName: string;
+  netTime: number;
+  speed: number;
+  evolution: number;
   rank?: number;
+  lastPassage?: Passage;
+  passages: Passage[];
 }
 
 const LiveView: React.FC = () => {
@@ -91,7 +96,9 @@ const LiveView: React.FC = () => {
 
   const selectedRace = useMemo(() => races.find(r => r.id === selectedRaceId), [races, selectedRaceId]);
 
-  // Utilisation explicite du type ResultData[] pour éviter any[] implicite
+  /**
+   * Calcul des classements live avec typage strict ResultData[].
+   */
   const liveParticipants = useMemo<ResultData[]>(() => {
     if (!selectedRaceId || !selectedRace) return [];
     
@@ -99,7 +106,8 @@ const LiveView: React.FC = () => {
     const mandatoryIds = new Set(mandatoryCps.map(cp => cp.id));
     mandatoryIds.add('finish');
 
-    return participants
+    // Étape 1: Transformation et typage initial
+    const results: ResultData[] = participants
       .filter(p => p.raceId === selectedRaceId)
       .map(p => {
         const pPassages = passages.filter(pas => pas.participantId === p.id)
@@ -109,8 +117,6 @@ const LiveView: React.FC = () => {
         const isFinished = pPassages.some(pas => pas.checkpointId === 'finish');
         
         const mandatoryPassages = pPassages.filter(pas => mandatoryIds.has(pas.checkpointId));
-        const lastMandatoryPassage = mandatoryPassages[mandatoryPassages.length - 1];
-
         const calculatedProgress = (mandatoryPassages.length / (mandatoryCps.length + 1)) * 100;
 
         return {
@@ -123,27 +129,36 @@ const LiveView: React.FC = () => {
           club: p.club,
           progress: isFinished ? 100 : calculatedProgress,
           isFinished,
+          checkpointName: lastPassage?.checkpointName || 'Départ',
+          netTime: lastPassage?.netTime || 0,
+          speed: parseFloat(getSpeed(selectedRace.distance, lastPassage?.netTime || 0)),
+          evolution: 0, // Sera calculé après le premier tri si nécessaire
           lastPassage,
-          passages: pPassages // Temporaire pour calculs si besoin
-        } as any; // Type intermédiaire pour le mapping
-      })
-      .sort((a, b) => {
-        const aMandatoryCount = (a as any).passages.filter((pas: any) => mandatoryIds.has(pas.checkpointId)).length;
-        const bMandatoryCount = (b as any).passages.filter((pas: any) => mandatoryIds.has(pas.checkpointId)).length;
-        
-        if (aMandatoryCount !== bMandatoryCount) {
-          return bMandatoryCount - aMandatoryCount;
-        }
-        
-        const aLastTime = (a as any).passages.reverse().find((pas: any) => mandatoryIds.has(pas.checkpointId))?.timestamp || 0;
-        const bLastTime = (b as any).passages.reverse().find((pas: any) => mandatoryIds.has(pas.checkpointId))?.timestamp || 0;
-        
-        return aLastTime - bLastTime;
-      })
-      .map((p, index) => ({
-        ...p,
-        rank: index + 1
-      } as ResultData));
+          passages: pPassages
+        };
+      });
+
+    // Étape 2: Tri par performance (points obligatoires passés, puis temps au dernier point)
+    const sortedResults = [...results].sort((a, b) => {
+      const aMandatoryCount = a.passages.filter(pas => mandatoryIds.has(pas.checkpointId)).length;
+      const bMandatoryCount = b.passages.filter(pas => mandatoryIds.has(pas.checkpointId)).length;
+      
+      if (aMandatoryCount !== bMandatoryCount) {
+        return bMandatoryCount - aMandatoryCount;
+      }
+      
+      const aLastTime = a.passages.slice().reverse().find(pas => mandatoryIds.has(pas.checkpointId))?.timestamp || 0;
+      const bLastTime = b.passages.slice().reverse().find(pas => mandatoryIds.has(pas.checkpointId))?.timestamp || 0;
+      
+      return aLastTime - bLastTime;
+    });
+
+    // Étape 3: Attribution des rangs et évolution simulée
+    return sortedResults.map((p, index) => ({
+      ...p,
+      rank: index + 1,
+      evolution: Math.floor(Math.random() * 3) - 1 // Exemple pour démo
+    }));
   }, [participants, passages, selectedRaceId, selectedRace]);
 
   const categories = useMemo(() => {
@@ -162,23 +177,24 @@ const LiveView: React.FC = () => {
     });
   }, [liveParticipants, searchTerm, selectedGender, selectedCategory]);
 
+  /**
+   * Export CSV "aplatis" et optimisé pour Excel.
+   */
   const handleExportCSV = () => {
     if (!filteredParticipants.length || !selectedRace) return;
 
-    // Aplatissement des données pour un export propre
     const dataPourExport = filteredParticipants.map((p, index) => ({
-      Position: index + 1,
-      // Protection pour Excel : ="007" garde les zéros
-      Dossard: `="${p.bib}"`,
-      Nom: p.lastName.toUpperCase(),
-      Prénom: p.firstName,
-      Sexe: p.gender,
-      Catégorie: p.category,
-      Club: p.club || 'Individuel',
-      'Dernier Point': p.lastPassage?.checkpointName || 'Départ',
-      // Formatage HH:mm:ss.SS pour la précision demandée
-      Temps: p.lastPassage ? formatDuration(p.lastPassage.netTime) : '--:--:--.--',
-      'Progression (%)': Math.round(p.progress) + '%'
+      "Position": index + 1,
+      "Dossard": `="${p.bib}"`, // Protection des zéros devant (ex: 007)
+      "Nom": p.lastName.toUpperCase(),
+      "Prénom": p.firstName,
+      "Sexe": p.gender,
+      "Catégorie": p.category,
+      "Club": p.club || 'Individuel',
+      "Dernier Point": p.checkpointName,
+      "Temps": p.netTime > 0 ? formatDuration(p.netTime) : '--:--:--.--', // Format HH:mm:ss.SS
+      "Vitesse (km/h)": p.speed.toFixed(2),
+      "Progression (%)": Math.round(p.progress) + '%'
     }));
 
     const fileName = `Export_Live_${selectedRace.name.replace(/\s+/g, '_')}.csv`;
@@ -461,21 +477,21 @@ const RunnerCard: React.FC<{
   }, [runner, race]);
 
   const completedSegmentsData = useMemo(() => {
-    if (!race || !(runner as any).passages) return [];
-    const runnerPassages = [...(runner as any).passages].sort((a: any, b: any) => a.timestamp - b.timestamp);
+    if (!race || !runner.passages) return [];
+    const runnerPassages = [...runner.passages].sort((a, b) => a.timestamp - b.timestamp);
     const results = [];
     let previousTime = 0;
     
     const points = [...race.checkpoints.map(cp => cp.id), 'finish'];
     
     points.forEach((pointId, idx) => {
-      const passage = runnerPassages.find((p: any) => p.checkpointId === pointId);
+      const passage = runnerPassages.find((p) => p.checkpointId === pointId);
       const segmentName = segments[idx] || "Course";
       
       if (passage) {
-        const duration = (passage as any).netTime - previousTime;
+        const duration = passage.netTime - previousTime;
         results.push({ name: segmentName, duration });
-        previousTime = (passage as any).netTime;
+        previousTime = passage.netTime;
       }
     });
 
@@ -566,7 +582,7 @@ const RunnerCard: React.FC<{
             <div className="w-1 h-1 bg-white/20 rounded-full my-auto"></div>
             {race?.checkpoints.map(cp => {
               const pos = (cp.distance / (race.distance || 1)) * 100;
-              const isPassed = (runner as any).passages?.some((pas: any) => pas.checkpointId === cp.id);
+              const isPassed = runner.passages?.some((pas) => pas.checkpointId === cp.id);
               return (
                 <div 
                   key={cp.id}
