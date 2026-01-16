@@ -24,18 +24,12 @@ export const parseCSV = (text: string): any[] => {
 export const exportToCSV = (filename: string, data: any[]) => {
   if (!data.length) return;
   const headers = Object.keys(data[0]);
-  
-  // Utilisation de \ufeff (BOM UTF-8) pour que Excel reconnaisse les accents
   const csvContent = [
-    headers.join(';'), 
-    ...data.map(row => headers.map(h => {
-      const val = row[h] === null || row[h] === undefined ? '' : row[h];
-      // On protège les valeurs contenant des points-virgules ou des retours à la ligne
-      return `"${String(val).replace(/"/g, '""')}"`;
-    }).join(';'))
+    headers.join(';'), // On utilise ; par défaut pour Excel FR
+    ...data.map(row => headers.map(h => `"${row[h] || ''}"`).join(';'))
   ].join('\n');
 
-  const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
   const link = document.createElement("a");
   const url = URL.createObjectURL(blob);
   link.setAttribute("href", url);

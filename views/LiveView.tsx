@@ -1,14 +1,14 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { collection, onSnapshot, query, orderBy, doc } from 'firebase/firestore';
 import { db } from '../firebase';
-import { Race, Participant, Passage } from '../types';
+import { Race, Participant, Passage, ParticipantStatus } from '../types';
 import { formatDuration, getSpeed } from '../utils/time';
 import { Trophy, Users, Timer, Activity, Star, Search, MapPin, CheckCircle2, Tv, Filter, User, X, FileSpreadsheet } from 'lucide-react';
 import { exportToCSV } from '../utils/csv';
 
 /**
  * Interface ResultData pour le typage strict des résultats.
- * Résout les erreurs TS7034 et TS7005 liées au type 'any[]' implicite bloquant le build Vercel.
+ * Résout les erreurs TS7034 et TS7005 liées au type 'any[]' implicite.
  */
 interface ResultData {
   id: string;
@@ -20,13 +20,14 @@ interface ResultData {
   club?: string;
   progress: number;
   isFinished: boolean;
-  checkpointName: string;
   netTime: number;
-  speed: number;
-  evolution: number;
+  speed: string;
   rank: number;
+  checkpointName: string;
   lastPassage?: Passage;
   passages: Passage[];
+  mandatoryPassages: Passage[];
+  lastMandatoryPassage?: Passage;
 }
 
 const LiveView: React.FC = () => {
@@ -97,18 +98,17 @@ const LiveView: React.FC = () => {
   const selectedRace = useMemo(() => races.find(r => r.id === selectedRaceId), [races, selectedRaceId]);
 
   /**
-   * Calcul des classements live avec typage strict ResultData[].
-   * Utilise useMemo pour transformer et trier les données en temps réel.
+   * Calcul des classements avec typage strict ResultData[].
+   * Utilise le pattern as ResultData pour garantir le type lors du mapping.
    */
-  const liveParticipants = useMemo<ResultData[]>(() => {
+  const liveParticipants: ResultData[] = useMemo(() => {
     if (!selectedRaceId || !selectedRace) return [];
     
     const mandatoryCps = selectedRace.checkpoints.filter(cp => cp.isMandatory);
     const mandatoryIds = new Set(mandatoryCps.map(cp => cp.id));
     mandatoryIds.add('finish');
 
-    // Étape 1: Transformation initiale avec calcul de progression et vitesse
-    const results = participants
+    return participants
       .filter(p => p.raceId === selectedRaceId)
       .map(p => {
         const pPassages = passages.filter(pas => pas.participantId === p.id)
@@ -118,6 +118,8 @@ const LiveView: React.FC = () => {
         const isFinished = pPassages.some(pas => pas.checkpointId === 'finish');
         
         const mandatoryPassages = pPassages.filter(pas => mandatoryIds.has(pas.checkpointId));
+        const lastMandatoryPassage = mandatoryPassages[mandatoryPassages.length - 1];
+
         const calculatedProgress = (mandatoryPassages.length / (mandatoryCps.length + 1)) * 100;
 
         return {
@@ -130,37 +132,29 @@ const LiveView: React.FC = () => {
           club: p.club,
           progress: isFinished ? 100 : calculatedProgress,
           isFinished,
-          checkpointName: lastPassage?.checkpointName || 'Départ',
           netTime: lastPassage?.netTime || 0,
-          speed: parseFloat(getSpeed(selectedRace.distance, lastPassage?.netTime || 0)),
-          evolution: 0,
+          speed: getSpeed(selectedRace.distance, lastPassage?.netTime || 0),
+          checkpointName: lastPassage?.checkpointName || 'Départ',
           lastPassage,
-          passages: pPassages
+          passages: pPassages,
+          mandatoryPassages,
+          lastMandatoryPassage,
+          rank: 0 // Défini après le tri
         };
-      });
-
-    // Étape 2: Tri par performance (nombre de points passés, puis temps chronométré)
-    const sorted = [...results].sort((a, b) => {
-      const aMandatoryCount = a.passages.filter(pas => mandatoryIds.has(pas.checkpointId)).length;
-      const bMandatoryCount = b.passages.filter(pas => mandatoryIds.has(pas.checkpointId)).length;
-      
-      if (aMandatoryCount !== bMandatoryCount) {
-        return bMandatoryCount - aMandatoryCount;
-      }
-      
-      // En cas d'égalité de points, celui qui est passé le plus tôt au dernier point est devant
-      const aLastTime = a.passages.slice().reverse().find(pas => mandatoryIds.has(pas.checkpointId))?.timestamp || 0;
-      const bLastTime = b.passages.slice().reverse().find(pas => mandatoryIds.has(pas.checkpointId))?.timestamp || 0;
-      
-      return aLastTime - bLastTime;
-    });
-
-    // Étape 3: Attribution des rangs définitifs
-    return sorted.map((p, index) => ({
-      ...p,
-      rank: index + 1,
-      evolution: Math.floor(Math.random() * 3) - 1 // Exemple pour démo visuelle
-    }));
+      })
+      .sort((a, b) => {
+        if (a.mandatoryPassages.length !== b.mandatoryPassages.length) {
+          return b.mandatoryPassages.length - a.mandatoryPassages.length;
+        }
+        if (a.lastMandatoryPassage && b.lastMandatoryPassage) {
+          return a.lastMandatoryPassage.timestamp - b.lastMandatoryPassage.timestamp;
+        }
+        return 0;
+      })
+      .map((p, index) => ({
+        ...p,
+        rank: index + 1
+      }));
   }, [participants, passages, selectedRaceId, selectedRace]);
 
   const categories = useMemo(() => {
@@ -180,23 +174,23 @@ const LiveView: React.FC = () => {
   }, [liveParticipants, searchTerm, selectedGender, selectedCategory]);
 
   /**
-   * Export CSV optimisé pour Excel (France)
-   * Formatage des temps en HH:mm:ss.SS et extraction des noms.
+   * Export CSV optimisé.
+   * Aplatit les données pour Excel et formate les primitives (strings/numbers).
    */
   const handleExportCSV = () => {
     if (!filteredParticipants.length || !selectedRace) return;
 
     const dataPourExport = filteredParticipants.map((p) => ({
       "Rang": p.rank,
-      "Dossard": `="${p.bib}"`, // Protection contre la suppression des zéros par Excel
+      "Dossard": `="${p.bib}"`, // Protection contre la suppression des zéros devant (ex: "001")
       "Nom": p.lastName.toUpperCase(),
       "Prénom": p.firstName,
       "Sexe": p.gender,
       "Catégorie": p.category,
       "Club": p.club || 'Individuel',
       "Dernier Point": p.checkpointName,
-      "Temps": p.netTime > 0 ? formatDuration(p.netTime) : '--:--:--.--',
-      "Vitesse (km/h)": p.speed.toFixed(2),
+      "Temps": p.netTime > 0 ? formatDuration(p.netTime) : '--:--:--.--', // Format HH:mm:ss.SS
+      "Vitesse (km/h)": parseFloat(p.speed).toFixed(2),
       "Progression (%)": Math.round(p.progress) + '%'
     }));
 
@@ -304,11 +298,11 @@ const LiveView: React.FC = () => {
                 onClick={handleExportCSV}
                 className="p-3 bg-emerald-600/10 text-emerald-400 hover:bg-emerald-600 hover:text-white rounded-xl transition-all flex items-center gap-2 font-black text-[10px] uppercase border border-emerald-500/20"
               >
-                <FileSpreadsheet size={16} /> Export
+                <FileSpreadsheet size={16} /> Export CSV
               </button>
               <button 
                 onClick={() => setIsTVMode(true)}
-                className="p-3 bg-blue-600/10 text-blue-400 hover:bg-blue-600 hover:text-white rounded-xl transition-all flex items-center gap-2 font-black text-[10px] uppercase border border-blue-500/20"
+                className="p-3 bg-blue-600/10 text-blue-400 hover:bg-blue-600 hover:text-white rounded-xl transition-all flex items-center gap-2 font-black text-[10px] uppercase"
               >
                 <Tv size={16} /> Mode TV
               </button>
@@ -480,7 +474,7 @@ const RunnerCard: React.FC<{
   }, [runner, race]);
 
   const completedSegmentsData = useMemo(() => {
-    if (!race || !runner.passages) return [];
+    if (!race) return [];
     const runnerPassages = [...runner.passages].sort((a, b) => a.timestamp - b.timestamp);
     const results = [];
     let previousTime = 0;
@@ -488,7 +482,7 @@ const RunnerCard: React.FC<{
     const points = [...race.checkpoints.map(cp => cp.id), 'finish'];
     
     points.forEach((pointId, idx) => {
-      const passage = runnerPassages.find((p) => p.checkpointId === pointId);
+      const passage = runnerPassages.find(p => p.checkpointId === pointId);
       const segmentName = segments[idx] || "Course";
       
       if (passage) {
@@ -499,7 +493,7 @@ const RunnerCard: React.FC<{
     });
 
     return results;
-  }, [runner, race, segments]);
+  }, [runner.passages, race, segments]);
 
   return (
     <div className="bg-[#1e293b] rounded-[2rem] p-5 border border-slate-800 hover:border-blue-500/30 transition-all shadow-xl">
@@ -585,7 +579,7 @@ const RunnerCard: React.FC<{
             <div className="w-1 h-1 bg-white/20 rounded-full my-auto"></div>
             {race?.checkpoints.map(cp => {
               const pos = (cp.distance / (race.distance || 1)) * 100;
-              const isPassed = runner.passages?.some((pas) => pas.checkpointId === cp.id);
+              const isPassed = runner.passages.some((pas: any) => pas.checkpointId === cp.id);
               return (
                 <div 
                   key={cp.id}

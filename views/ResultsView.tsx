@@ -6,20 +6,6 @@ import { Trophy, Printer, FileSpreadsheet, Filter, Medal, Settings2, Eye, EyeOff
 import { formatDuration, getSpeed } from '../utils/time';
 import { exportToCSV } from '../utils/csv';
 
-// Interface pour typer proprement les résultats enrichis et éviter les erreurs any[]
-interface ResultWithDetails extends Passage {
-  participant?: Participant;
-  speed: string;
-  evolution: number;
-}
-
-interface SegmentResult {
-  name: string;
-  duration: number | null;
-  total: number | null;
-  pointName: string;
-}
-
 const ResultsView: React.FC = () => {
   const [races, setRaces] = useState<Race[]>([]);
   const [selectedRaceId, setSelectedRaceId] = useState('');
@@ -41,9 +27,6 @@ const ResultsView: React.FC = () => {
     evolution: true
   });
 
-  // État pour les colonnes de segments spécifiques
-  const [visibleSegments, setVisibleSegments] = useState<number[]>([]);
-
   useEffect(() => {
     onSnapshot(collection(db, 'races'), snap => {
       const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as Race));
@@ -60,21 +43,13 @@ const ResultsView: React.FC = () => {
     onSnapshot(query(collection(db, 'passages'), orderBy('timestamp', 'asc')), snap => {
       setAllPassages(snap.docs.map(d => ({ id: d.id, ...d.data() } as Passage)));
     });
-    // Réinitialiser les segments visibles lors du changement de course
-    setVisibleSegments([]);
   }, [selectedRaceId]);
 
   const activeRace = races.find(r => r.id === selectedRaceId);
   const categories = useMemo(() => Array.from(new Set(participants.map(p => p.category))), [participants]);
 
-  const currentRaceSegments = useMemo(() => {
-    if (!activeRace) return [];
-    const numSegments = activeRace.checkpoints.length + 1;
-    return activeRace.segments || Array(numSegments).fill("Course");
-  }, [activeRace]);
-
-  // Calcul complexe des classements avec évolution - Typage strict ResultWithDetails[]
-  const processedResults = useMemo<ResultWithDetails[]>(() => {
+  // Calcul complexe des classements avec évolution
+  const processedResults = useMemo(() => {
     if (!activeRace) return [];
 
     const finishers = allPassages
@@ -107,30 +82,24 @@ const ResultsView: React.FC = () => {
 
   const toggleCol = (id: keyof typeof cols) => setCols(prev => ({ ...prev, [id]: !prev[id] }));
 
-  const toggleSegmentCol = (idx: number) => {
-    setVisibleSegments(prev => 
-      prev.includes(idx) ? prev.filter(i => i !== idx) : [...prev, idx]
-    );
-  };
-
   const toggleExpand = (bib: string) => {
-    setExpandedBibs(prev => 
-      prev.includes(bib) ? prev.filter(b => b !== bib) : [...prev, bib]
-    );
+    setExpandedBibs(prev => prev.includes(bib) ? prev.filter(b => b !== bib) : [...prev, bib]);
   };
 
-  const calculateSegments = (participantId: string): SegmentResult[] => {
+  const calculateSegments = (participantId: string) => {
     if (!activeRace) return [];
     const runnerPassages = allPassages
       .filter(p => p.participantId === participantId)
       .sort((a, b) => a.timestamp - b.timestamp);
 
-    const segments = currentRaceSegments;
-    const results: SegmentResult[] = [];
+    const segments = activeRace.segments || Array(activeRace.checkpoints.length + 1).fill("Course");
+    const results = [];
 
+    // Premier segment : Départ -> CP1 (ou Finish si pas de CP)
+    let previousTime = 0;
+    
     // On construit la liste ordonnée des points de passage de la course
     const points = [...activeRace.checkpoints.map(cp => cp.id), 'finish'];
-    let previousTime = 0;
     
     points.forEach((pointId, idx) => {
       const passage = runnerPassages.find(p => p.checkpointId === pointId);
@@ -158,41 +127,6 @@ const ResultsView: React.FC = () => {
     return results;
   };
 
-  const handleExportCSV = () => {
-    if (!processedResults.length || !activeRace) return;
-
-    // Transformation des données pour un CSV propre et optimisé Excel (flattening)
-    const exportData = processedResults.map((f, i) => {
-      // Record<string, string | number> évite les erreurs d'indexation TypeScript
-      const row: Record<string, string | number> = {};
-      
-      // Colonnes essentielles demandées
-      row["Position"] = i + 1;
-      // Astuce Excel : format ="valeur" pour conserver les zéros devant les dossards (ex: 007)
-      row["Dossard"] = `="${f.bib}"`;
-      row["Nom"] = (f.participant?.lastName || '').toUpperCase();
-      row["Prénom"] = f.participant?.firstName || '';
-      row["Sexe"] = f.participant?.gender || '';
-      row["Catégorie"] = f.participant?.category || '';
-      row["Club"] = f.participant?.club || 'Individuel';
-      // Formatage Temps en HH:mm:ss (on retire les centièmes pour l'export Excel standard)
-      row["Temps"] = formatDuration(f.netTime).split('.')[0];
-      row["Vitesse (km/h)"] = f.speed;
-
-      // Inclusion des temps par segment (splits) formatés proprement
-      const segmentsData = calculateSegments(f.participantId);
-      segmentsData.forEach((seg, idx) => {
-        const colName = `Split ${idx + 1} (${seg.name})`;
-        row[colName] = seg.duration !== null ? formatDuration(seg.duration).split('.')[0] : '--:--:--';
-      });
-
-      return row;
-    });
-
-    const fileName = `Classement_${activeRace.name.replace(/\s+/g, '_')}_${viewMode.toUpperCase()}.csv`;
-    exportToCSV(fileName, exportData);
-  };
-
   return (
     <div className="space-y-8 pb-20">
       <header className="flex justify-between items-center">
@@ -201,16 +135,10 @@ const ResultsView: React.FC = () => {
           <p className="text-slate-500 font-medium">Composez vos classements sur mesure pour l'export ou l'affichage</p>
         </div>
         <div className="flex gap-3">
-          <button 
-            onClick={handleExportCSV} 
-            className="bg-white border-2 border-slate-100 px-6 py-3 rounded-2xl font-black flex items-center gap-2 hover:bg-slate-50 transition-colors"
-          >
-            <FileSpreadsheet size={18} className="text-emerald-600" /> EXPORT EXCEL (CSV)
+          <button onClick={() => exportToCSV('Resultats.csv', processedResults)} className="bg-white border-2 border-slate-100 px-6 py-3 rounded-2xl font-black flex items-center gap-2">
+            <FileSpreadsheet size={18} /> CSV
           </button>
-          <button 
-            onClick={() => window.print()} 
-            className="bg-blue-600 text-white px-6 py-3 rounded-2xl font-black flex items-center gap-2 shadow-xl shadow-blue-100 hover:bg-blue-700 transition-all"
-          >
+          <button onClick={() => window.print()} className="bg-blue-600 text-white px-6 py-3 rounded-2xl font-black flex items-center gap-2 shadow-xl shadow-blue-100">
             <Printer size={18} /> IMPRIMER
           </button>
         </div>
@@ -265,37 +193,16 @@ const ResultsView: React.FC = () => {
                 <Settings2 size={14} /> Colonnes actives
               </h3>
               <div className="grid grid-cols-1 gap-2">
-                {(Object.entries(cols) as [keyof typeof cols, boolean][]).map(([id, active]) => (
+                {Object.entries(cols).map(([id, active]) => (
                   <button 
                     key={id}
-                    onClick={() => toggleCol(id)}
+                    onClick={() => toggleCol(id as any)}
                     className={`flex items-center justify-between px-4 py-2 rounded-xl border-2 transition-all ${
                       active ? 'border-blue-100 bg-blue-50 text-blue-700' : 'border-slate-50 text-slate-300'
                     }`}
                   >
                     <span className="text-xs font-black uppercase tracking-tighter">{id}</span>
                     {active ? <Eye size={14} /> : <EyeOff size={14} />}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Section pour les segments éditables dans la barre latérale */}
-            <div>
-              <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                <Activity size={14} /> Temps par Segment
-              </h3>
-              <div className="grid grid-cols-1 gap-2">
-                {currentRaceSegments.map((seg, idx) => (
-                  <button 
-                    key={idx}
-                    onClick={() => toggleSegmentCol(idx)}
-                    className={`flex items-center justify-between px-4 py-2 rounded-xl border-2 transition-all ${
-                      visibleSegments.includes(idx) ? 'border-emerald-100 bg-emerald-50 text-emerald-700' : 'border-slate-50 text-slate-300'
-                    }`}
-                  >
-                    <span className="text-[10px] font-black uppercase tracking-tighter truncate max-w-[150px]">{seg}</span>
-                    {visibleSegments.includes(idx) ? <Eye size={14} /> : <EyeOff size={14} />}
                   </button>
                 ))}
               </div>
@@ -307,7 +214,7 @@ const ResultsView: React.FC = () => {
         <div className="flex-1 bg-white rounded-[3rem] border border-slate-100 shadow-xl overflow-hidden">
           <div className="p-8 border-b border-slate-50 flex justify-between items-center">
              <select 
-              className="text-2xl font-black text-slate-900 bg-transparent outline-none cursor-pointer"
+              className="text-2xl font-black text-slate-900 bg-transparent outline-none"
               value={selectedRaceId}
               onChange={e => setSelectedRaceId(e.target.value)}
              >
@@ -328,12 +235,6 @@ const ResultsView: React.FC = () => {
                   {cols.name && <th className="py-6 px-6">Concurrent</th>}
                   {cols.club && <th className="py-6 px-6">Club</th>}
                   {cols.cat && <th className="py-6 px-4">Cat.</th>}
-                  
-                  {/* Headers dynamiques pour les segments */}
-                  {visibleSegments.map(idx => (
-                    <th key={idx} className="py-6 px-4 text-emerald-600">{currentRaceSegments[idx]}</th>
-                  ))}
-
                   {cols.time && <th className="py-6 px-6">Temps</th>}
                   {cols.speed && <th className="py-6 px-6">Vitesse</th>}
                   {cols.evolution && <th className="py-6 px-8 text-center">Évol.</th>}
@@ -342,7 +243,7 @@ const ResultsView: React.FC = () => {
               <tbody className="divide-y divide-slate-50">
                 {processedResults.map((f, i) => {
                   const isExpanded = expandedBibs.includes(f.bib);
-                  const segmentsData = calculateSegments(f.participantId);
+                  const segmentsData = isExpanded ? calculateSegments(f.participantId) : [];
 
                   return (
                     <React.Fragment key={f.id}>
@@ -365,25 +266,11 @@ const ResultsView: React.FC = () => {
                         {cols.bib && <td className="py-6 px-4 font-black mono text-blue-600 text-xl">{f.bib}</td>}
                         {cols.name && (
                           <td className="py-6 px-6">
-                            <div className="font-black text-slate-900 uppercase leading-none">{f.participant?.lastName} {f.participant?.firstName}</div>
-                            <div className="text-[10px] text-slate-400 font-bold uppercase mt-1">{f.participant?.gender === 'F' ? 'Femme' : 'Homme'}</div>
+                            <div className="font-black text-slate-900 uppercase">{f.participant?.lastName} {f.participant?.firstName}</div>
                           </td>
                         )}
-                        {cols.club && <td className="py-6 px-6 text-xs font-bold text-slate-400 uppercase">{f.participant?.club || 'Individuel'}</td>}
+                        {cols.club && <td className="py-6 px-6 text-xs font-bold text-slate-400 uppercase">{f.participant?.club || '---'}</td>}
                         {cols.cat && <td className="py-6 px-4 font-black text-[10px] text-slate-500">{f.participant?.category}</td>}
-                        
-                        {/* Valeurs dynamiques pour les segments */}
-                        {visibleSegments.map(idx => {
-                          const seg = segmentsData[idx];
-                          return (
-                            <td key={idx} className="py-6 px-4">
-                              <span className="font-black text-[11px] text-emerald-600 mono">
-                                {seg?.duration !== null ? formatDuration(seg.duration).split('.')[0] : '--:--:--'}
-                              </span>
-                            </td>
-                          );
-                        })}
-
                         {cols.time && <td className="py-6 px-6 font-black mono text-lg">{formatDuration(f.netTime)}</td>}
                         {cols.speed && <td className="py-6 px-6 font-black text-blue-600 mono text-sm">{f.speed} <span className="text-[10px]">km/h</span></td>}
                         {cols.evolution && (
@@ -399,7 +286,7 @@ const ResultsView: React.FC = () => {
                       </tr>
                       {isExpanded && (
                         <tr className="bg-slate-50/80">
-                          <td colSpan={9 + visibleSegments.length} className="px-12 py-8">
+                          <td colSpan={9} className="px-12 py-8">
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 animate-in fade-in slide-in-from-top-2">
                               {segmentsData.map((seg, sIdx) => (
                                 <div key={sIdx} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm relative overflow-hidden group/seg">
@@ -409,8 +296,8 @@ const ResultsView: React.FC = () => {
                                     <Activity size={14} className="text-slate-200" />
                                   </div>
                                   <div className="space-y-1">
-                                    <p className="text-xl font-black text-slate-900 mono">{seg.duration !== null ? formatDuration(seg.duration).split('.')[0] : '--:--:--'}</p>
-                                    <p className="text-[9px] font-bold text-slate-400 uppercase">Cumulé : {seg.total !== null ? formatDuration(seg.total).split('.')[0] : '--:--:--'}</p>
+                                    <p className="text-xl font-black text-slate-900 mono">{seg.duration ? formatDuration(seg.duration).split('.')[0] : '--:--:--'}</p>
+                                    <p className="text-[9px] font-bold text-slate-400 uppercase">Cumulé : {seg.total ? formatDuration(seg.total).split('.')[0] : '--:--:--'}</p>
                                   </div>
                                   <div className="mt-3 pt-2 border-t border-slate-50">
                                     <span className="text-[8px] font-black text-slate-400 uppercase">Jusqu'à : {seg.pointName}</span>
