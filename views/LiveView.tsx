@@ -411,6 +411,30 @@ const RunnerCard: React.FC<{
     return cpIndex !== undefined && cpIndex !== -1 ? cpIndex + 1 : 0;
   }, [runner, race]);
 
+  // Calcul des temps par segment complété
+  const completedSegmentsData = useMemo(() => {
+    if (!race) return [];
+    const runnerPassages = [...runner.passages].sort((a, b) => a.timestamp - b.timestamp);
+    const results = [];
+    let previousTime = 0;
+    
+    // On construit la liste des points attendus
+    const points = [...race.checkpoints.map(cp => cp.id), 'finish'];
+    
+    points.forEach((pointId, idx) => {
+      const passage = runnerPassages.find(p => p.checkpointId === pointId);
+      const segmentName = segments[idx] || "Course";
+      
+      if (passage) {
+        const duration = passage.netTime - previousTime;
+        results.push({ name: segmentName, duration });
+        previousTime = passage.netTime;
+      }
+    });
+
+    return results;
+  }, [runner.passages, race, segments]);
+
   return (
     <div className="bg-[#1e293b] rounded-[2rem] p-5 border border-slate-800 hover:border-blue-500/30 transition-all shadow-xl">
       <div className="flex items-center gap-4 mb-4">
@@ -450,7 +474,7 @@ const RunnerCard: React.FC<{
         </div>
       </div>
 
-      <div className="space-y-3 pt-4 border-t border-slate-800/50">
+      <div className="space-y-4 pt-4 border-t border-slate-800/50">
         <div className="flex justify-between text-[9px] font-black text-slate-500 uppercase mb-1">
           <div className="flex items-center gap-2">
              <span>Progression</span>
@@ -468,7 +492,6 @@ const RunnerCard: React.FC<{
           {/* Arrière-plan des segments */}
           <div className="absolute inset-0 flex">
             {segments.map((s: string, idx: number) => {
-              // Calcul de la largeur théorique du segment (simplifié ici à part égale pour le visuel public)
               const width = 100 / segments.length;
               const isCurrent = idx === currentSegmentIndex;
               const isPast = runner.isFinished || (currentSegmentIndex !== -1 && idx < currentSegmentIndex);
@@ -513,14 +536,23 @@ const RunnerCard: React.FC<{
           </div>
         </div>
 
+        {/* AFFICHAGE DES TEMPS PAR SEGMENT COMPLÉTÉ */}
+        {completedSegmentsData.length > 0 && (
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {completedSegmentsData.map((seg, sIdx) => (
+              <div key={sIdx} className="bg-slate-900/40 p-2 rounded-xl border border-slate-800/40 flex flex-col items-center">
+                <span className="text-[7px] font-black text-slate-500 uppercase mb-0.5">{seg.name}</span>
+                <span className="text-[10px] font-black text-blue-400 mono">{formatDuration(seg.duration).split('.')[0]}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
         {runner.lastPassage && (
           <div className="flex items-center gap-2 bg-slate-900/50 p-2 rounded-xl border border-slate-800/50">
             <MapPin size={10} className="text-blue-400" />
             <span className="text-[9px] font-black text-slate-400 uppercase">
               Dernier passage : <span className="text-slate-200">{runner.lastPassage.checkpointName}</span>
-              {!race?.checkpoints.find(c => c.id === runner.lastPassage.checkpointId)?.isMandatory && runner.lastPassage.checkpointId !== 'finish' && (
-                <span className="ml-2 text-slate-600">(Optionnel - Pas de rang)</span>
-              )}
             </span>
           </div>
         )}

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { collection, onSnapshot, query, where, orderBy } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Race, Participant, Passage } from '../types';
-import { Trophy, Printer, FileSpreadsheet, Filter, Medal, Settings2, Eye, EyeOff, TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import { Trophy, Printer, FileSpreadsheet, Filter, Medal, Settings2, Eye, EyeOff, TrendingUp, TrendingDown, Minus, ChevronDown, ChevronUp, Activity } from 'lucide-react';
 import { formatDuration, getSpeed } from '../utils/time';
 import { exportToCSV } from '../utils/csv';
 
@@ -11,6 +11,7 @@ const ResultsView: React.FC = () => {
   const [selectedRaceId, setSelectedRaceId] = useState('');
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [allPassages, setAllPassages] = useState<Passage[]>([]);
+  const [expandedBibs, setExpandedBibs] = useState<string[]>([]);
   
   // États de configuration de l'édition
   const [viewMode, setViewMode] = useState<'all' | 'scratch' | 'scratch_m' | 'scratch_f' | 'category' | 'podium'>('all');
@@ -80,6 +81,51 @@ const ResultsView: React.FC = () => {
   }, [allPassages, participants, activeRace, viewMode, selectedCat]);
 
   const toggleCol = (id: keyof typeof cols) => setCols(prev => ({ ...prev, [id]: !prev[id] }));
+
+  const toggleExpand = (bib: string) => {
+    setExpandedBibs(prev => prev.includes(bib) ? prev.filter(b => b !== bib) : [...prev, bib]);
+  };
+
+  const calculateSegments = (participantId: string) => {
+    if (!activeRace) return [];
+    const runnerPassages = allPassages
+      .filter(p => p.participantId === participantId)
+      .sort((a, b) => a.timestamp - b.timestamp);
+
+    const segments = activeRace.segments || Array(activeRace.checkpoints.length + 1).fill("Course");
+    const results = [];
+
+    // Premier segment : Départ -> CP1 (ou Finish si pas de CP)
+    let previousTime = 0;
+    
+    // On construit la liste ordonnée des points de passage de la course
+    const points = [...activeRace.checkpoints.map(cp => cp.id), 'finish'];
+    
+    points.forEach((pointId, idx) => {
+      const passage = runnerPassages.find(p => p.checkpointId === pointId);
+      const segmentName = segments[idx] || "Course";
+      
+      if (passage) {
+        const duration = passage.netTime - previousTime;
+        results.push({
+          name: segmentName,
+          duration: duration,
+          total: passage.netTime,
+          pointName: passage.checkpointName
+        });
+        previousTime = passage.netTime;
+      } else {
+        results.push({
+          name: segmentName,
+          duration: null,
+          total: null,
+          pointName: pointId === 'finish' ? 'ARRIVÉE' : activeRace.checkpoints.find(c => c.id === pointId)?.name || 'Point'
+        });
+      }
+    });
+
+    return results;
+  };
 
   return (
     <div className="space-y-8 pb-20">
@@ -183,7 +229,8 @@ const ResultsView: React.FC = () => {
             <table className="w-full text-left">
               <thead>
                 <tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50/50">
-                  {cols.rank && <th className="py-6 px-8">Rang</th>}
+                  <th className="py-6 px-4"></th>
+                  {cols.rank && <th className="py-6 px-4">Rang</th>}
                   {cols.bib && <th className="py-6 px-4">Dos.</th>}
                   {cols.name && <th className="py-6 px-6">Concurrent</th>}
                   {cols.club && <th className="py-6 px-6">Club</th>}
@@ -194,39 +241,76 @@ const ResultsView: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {processedResults.map((f, i) => (
-                  <tr key={f.id} className="group hover:bg-slate-50/50 transition-colors">
-                    {cols.rank && (
-                      <td className="py-6 px-8">
-                        <span className={`w-8 h-8 rounded-lg flex items-center justify-center font-black text-sm ${
-                          i < 3 ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-600'
-                        }`}>
-                          {i + 1}
-                        </span>
-                      </td>
-                    )}
-                    {cols.bib && <td className="py-6 px-4 font-black mono text-blue-600 text-xl">{f.bib}</td>}
-                    {cols.name && (
-                      <td className="py-6 px-6">
-                        <div className="font-black text-slate-900 uppercase">{f.participant?.lastName} {f.participant?.firstName}</div>
-                      </td>
-                    )}
-                    {cols.club && <td className="py-6 px-6 text-xs font-bold text-slate-400 uppercase">{f.participant?.club || '---'}</td>}
-                    {cols.cat && <td className="py-6 px-4 font-black text-[10px] text-slate-500">{f.participant?.category}</td>}
-                    {cols.time && <td className="py-6 px-6 font-black mono text-lg">{formatDuration(f.netTime)}</td>}
-                    {cols.speed && <td className="py-6 px-6 font-black text-blue-600 mono text-sm">{f.speed} <span className="text-[10px]">km/h</span></td>}
-                    {cols.evolution && (
-                      <td className="py-6 px-8 text-center">
-                        <div className={`flex items-center justify-center gap-1 font-black text-[10px] ${
-                          f.evolution > 0 ? 'text-emerald-500' : f.evolution < 0 ? 'text-red-500' : 'text-slate-300'
-                        }`}>
-                          {f.evolution > 0 ? <TrendingUp size={14}/> : f.evolution < 0 ? <TrendingDown size={14}/> : <Minus size={14}/>}
-                          {f.evolution !== 0 && Math.abs(f.evolution)}
-                        </div>
-                      </td>
-                    )}
-                  </tr>
-                ))}
+                {processedResults.map((f, i) => {
+                  const isExpanded = expandedBibs.includes(f.bib);
+                  const segmentsData = isExpanded ? calculateSegments(f.participantId) : [];
+
+                  return (
+                    <React.Fragment key={f.id}>
+                      <tr 
+                        className={`group cursor-pointer hover:bg-slate-50/50 transition-colors ${isExpanded ? 'bg-blue-50/30' : ''}`}
+                        onClick={() => toggleExpand(f.bib)}
+                      >
+                        <td className="py-6 px-4">
+                          {isExpanded ? <ChevronUp size={16} className="text-blue-500" /> : <ChevronDown size={16} className="text-slate-300" />}
+                        </td>
+                        {cols.rank && (
+                          <td className="py-6 px-4">
+                            <span className={`w-8 h-8 rounded-lg flex items-center justify-center font-black text-sm ${
+                              i < 3 ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-600'
+                            }`}>
+                              {i + 1}
+                            </span>
+                          </td>
+                        )}
+                        {cols.bib && <td className="py-6 px-4 font-black mono text-blue-600 text-xl">{f.bib}</td>}
+                        {cols.name && (
+                          <td className="py-6 px-6">
+                            <div className="font-black text-slate-900 uppercase">{f.participant?.lastName} {f.participant?.firstName}</div>
+                          </td>
+                        )}
+                        {cols.club && <td className="py-6 px-6 text-xs font-bold text-slate-400 uppercase">{f.participant?.club || '---'}</td>}
+                        {cols.cat && <td className="py-6 px-4 font-black text-[10px] text-slate-500">{f.participant?.category}</td>}
+                        {cols.time && <td className="py-6 px-6 font-black mono text-lg">{formatDuration(f.netTime)}</td>}
+                        {cols.speed && <td className="py-6 px-6 font-black text-blue-600 mono text-sm">{f.speed} <span className="text-[10px]">km/h</span></td>}
+                        {cols.evolution && (
+                          <td className="py-6 px-8 text-center">
+                            <div className={`flex items-center justify-center gap-1 font-black text-[10px] ${
+                              f.evolution > 0 ? 'text-emerald-500' : f.evolution < 0 ? 'text-red-500' : 'text-slate-300'
+                            }`}>
+                              {f.evolution > 0 ? <TrendingUp size={14}/> : f.evolution < 0 ? <TrendingDown size={14}/> : <Minus size={14}/>}
+                              {f.evolution !== 0 && Math.abs(f.evolution)}
+                            </div>
+                          </td>
+                        )}
+                      </tr>
+                      {isExpanded && (
+                        <tr className="bg-slate-50/80">
+                          <td colSpan={9} className="px-12 py-8">
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 animate-in fade-in slide-in-from-top-2">
+                              {segmentsData.map((seg, sIdx) => (
+                                <div key={sIdx} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm relative overflow-hidden group/seg">
+                                  <div className="absolute top-0 left-0 w-1 h-full bg-blue-500 opacity-20 group-hover/seg:opacity-100 transition-opacity"></div>
+                                  <div className="flex justify-between items-start mb-2">
+                                    <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest">{seg.name}</span>
+                                    <Activity size={14} className="text-slate-200" />
+                                  </div>
+                                  <div className="space-y-1">
+                                    <p className="text-xl font-black text-slate-900 mono">{seg.duration ? formatDuration(seg.duration).split('.')[0] : '--:--:--'}</p>
+                                    <p className="text-[9px] font-bold text-slate-400 uppercase">Cumulé : {seg.total ? formatDuration(seg.total).split('.')[0] : '--:--:--'}</p>
+                                  </div>
+                                  <div className="mt-3 pt-2 border-t border-slate-50">
+                                    <span className="text-[8px] font-black text-slate-400 uppercase">Jusqu'à : {seg.pointName}</span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
