@@ -67,6 +67,7 @@ export interface Race {
   status: RaceStatus;
   startTime?: number;
   checkpoints: Checkpoint[];
+  segments?: string[]; // Disciplines entre les points (ex: ["Trail", "VTT"])
 }
 
 export interface MarshalPresence {

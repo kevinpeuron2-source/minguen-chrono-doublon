@@ -389,6 +389,28 @@ const RunnerCard: React.FC<{
   isFav: boolean, 
   rank?: number 
 }> = ({ runner, race, onToggleFav, isFav, rank }) => {
+  
+  // Calcul dynamique des segments d'activité
+  const segments = useMemo(() => {
+    if (!race) return [];
+    const numSegments = race.checkpoints.length + 1;
+    return race.segments || Array(numSegments).fill("Course");
+  }, [race]);
+
+  // Déterminer le segment actuel du coureur
+  const currentSegmentIndex = useMemo(() => {
+    if (runner.isFinished) return -1;
+    // Si pas encore de passage, il est dans le premier segment
+    if (!runner.lastPassage) return 0;
+    
+    // Sinon, on cherche l'index du dernier checkpoint passé
+    const lastCpId = runner.lastPassage.checkpointId;
+    const cpIndex = race?.checkpoints.findIndex(c => c.id === lastCpId);
+    
+    // S'il vient de passer le checkpoint N, il est dans le segment N+1
+    return cpIndex !== undefined && cpIndex !== -1 ? cpIndex + 1 : 0;
+  }, [runner, race]);
+
   return (
     <div className="bg-[#1e293b] rounded-[2rem] p-5 border border-slate-800 hover:border-blue-500/30 transition-all shadow-xl">
       <div className="flex items-center gap-4 mb-4">
@@ -430,29 +452,64 @@ const RunnerCard: React.FC<{
 
       <div className="space-y-3 pt-4 border-t border-slate-800/50">
         <div className="flex justify-between text-[9px] font-black text-slate-500 uppercase mb-1">
-          <span>Progression</span>
+          <div className="flex items-center gap-2">
+             <span>Progression</span>
+             {currentSegmentIndex !== -1 && (
+               <span className="bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded-full lowercase italic">
+                 en cours : {segments[currentSegmentIndex]}
+               </span>
+             )}
+          </div>
           <span className="text-blue-400">{Math.round(runner.progress)}%</span>
         </div>
         
-        <div className="relative h-2 bg-slate-900 rounded-full flex items-center">
+        {/* BARRE DE PROGRESSION AMÉLIORÉE AVEC SEGMENTS */}
+        <div className="relative h-4 bg-slate-900 rounded-full flex items-center overflow-hidden">
+          {/* Arrière-plan des segments */}
+          <div className="absolute inset-0 flex">
+            {segments.map((s: string, idx: number) => {
+              // Calcul de la largeur théorique du segment (simplifié ici à part égale pour le visuel public)
+              const width = 100 / segments.length;
+              const isCurrent = idx === currentSegmentIndex;
+              const isPast = runner.isFinished || (currentSegmentIndex !== -1 && idx < currentSegmentIndex);
+              
+              return (
+                <div 
+                  key={idx}
+                  className={`h-full border-r border-slate-950/20 flex items-center justify-center transition-all ${
+                    isPast ? 'bg-blue-600/20' : isCurrent ? 'bg-blue-500/10 animate-pulse' : 'bg-transparent'
+                  }`}
+                  style={{ width: `${width}%` }}
+                >
+                  <span className={`text-[6px] font-black uppercase tracking-tighter hidden md:block ${isPast || isCurrent ? 'text-blue-400/40' : 'text-slate-800'}`}>
+                    {s}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Calque de progression réelle */}
           <div 
-            className={`h-full rounded-full transition-all duration-1000 ${runner.isFinished ? 'bg-emerald-500' : 'bg-blue-600 shadow-[0_0_12px_rgba(37,99,235,0.4)]'}`}
+            className={`h-full rounded-full transition-all duration-1000 relative z-10 ${runner.isFinished ? 'bg-emerald-500' : 'bg-blue-600 shadow-[0_0_12px_rgba(37,99,235,0.4)]'}`}
             style={{ width: `${runner.progress}%` }}
           />
-          <div className="absolute inset-0 flex justify-between px-0.5">
+
+          {/* Points de passage (Checkpoints) */}
+          <div className="absolute inset-0 flex justify-between px-0.5 z-20 pointer-events-none">
             <div className="w-1 h-1 bg-white/20 rounded-full my-auto"></div>
             {race?.checkpoints.map(cp => {
-              const pos = (cp.distance / race.distance) * 100;
+              const pos = (cp.distance / (race.distance || 1)) * 100;
               const isPassed = runner.passages.some((pas: any) => pas.checkpointId === cp.id);
               return (
                 <div 
                   key={cp.id}
-                  className={`w-1 h-1 rounded-full my-auto transition-colors ${isPassed ? 'bg-white' : 'bg-slate-700'} ${!cp.isMandatory ? 'opacity-30' : ''}`}
+                  className={`w-1.5 h-1.5 rounded-full my-auto transition-colors border-2 border-slate-900 ${isPassed ? 'bg-white' : 'bg-slate-700'} ${!cp.isMandatory ? 'opacity-30' : ''}`}
                   style={{ position: 'absolute', left: `${pos}%` }}
                 />
               );
             })}
-            <div className={`w-1.5 h-1.5 rounded-full my-auto ${runner.isFinished ? 'bg-white' : 'bg-slate-700'}`}></div>
+            <div className={`w-2 h-2 rounded-full my-auto border-2 border-slate-900 ${runner.isFinished ? 'bg-white' : 'bg-slate-700'}`}></div>
           </div>
         </div>
 
